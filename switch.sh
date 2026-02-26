@@ -15,9 +15,8 @@ gpio_pin="17"
 gpio_file="/sys/class/gpio/gpio$gpio_pin/"
 gpio_value="$gpio_file/value"
 
-# Check for the "state" variable
-if [[ -v state ]]; then
-  # Set the GPIO value to the "state" variable
+# Only write to GPIO if state is exactly "0" or "1"
+if [[ "$state" == "0" || "$state" == "1" ]]; then
   echo "$state" > "$gpio_value"
 fi
 

@@ -39,6 +39,16 @@ else
   status="on"
 fi
 
+# Read temperature from DS18B20 1-wire probe
+w1_device=$(echo /sys/bus/w1/devices/28-*/w1_slave)
+if [[ ! -f "$w1_device" ]]; then
+  temp_display="Temperature probe not found"
+elif ! head -1 "$w1_device" | grep -q "YES$"; then
+  temp_display="Temperature read error"
+else
+  temp_display=$(awk -F 't=' '/t=/{c=$2/1000; f=(c*1.8)+32; printf "%.1f &deg;C | %.1f &deg;F", c, f}' "$w1_device")
+fi
+
 cat << EOF
 <html>
 <head>
@@ -60,7 +70,11 @@ cat << EOF
 </p><p><button name="state" class="btn btn-danger btn-lg" value="0">turn off</button>
 </form></p>
 </div>
-<p>$(date)</p>
+<div class="card-footer text-body-secondary">
+  Current temp: $temp_display<br>
+  $(date)
+</div>
+</div>
 </body>
 </html>
 EOF

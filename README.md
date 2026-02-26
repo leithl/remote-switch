@@ -55,5 +55,7 @@ Links provided for your convenience, but buy from whereever you prefer
    - `chmod 0755 switch.sh`
   
  It should look something like this:
+
+
  <img width="367" height="338" alt="image" src="https://github.com/user-attachments/assets/cf57c170-1fed-49d0-ad67-8e05793cb1e2" />
 

@@ -30,8 +30,6 @@ fi
 # Read the value from the GPIO file
 value=$(< "$gpio_value")
 
-echo -e "Content-type: text/html\r\n\r\n"
-
 # Determine status text
 if [[ $value -eq 0 ]]; then
   status="off"
@@ -49,6 +47,7 @@ else
   temp_display=$(awk -F 't=' '/t=/{c=$2/1000; f=(c*1.8)+32; printf "%.1f &deg;C | %.1f &deg;F", c, f}' "$w1_device")
 fi
 
+echo -e "Content-type: text/html\r\n\r\n"
 cat << EOF
 <html>
 <head>

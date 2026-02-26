@@ -30,11 +30,13 @@ fi
 # Read the value from the GPIO file
 value=$(< "$gpio_value")
 
-# Determine status text
+# Determine status text and toggle button
 if [[ $value -eq 0 ]]; then
   status="off"
+  toggle_btn='<button type="submit" name="state" class="btn btn-success btn-lg" value="1">turn on</button>'
 else
   status="on"
+  toggle_btn='<button type="submit" name="state" class="btn btn-danger btn-lg" value="0">turn off</button>'
 fi
 
 # Read temperature from DS18B20 1-wire probe
@@ -63,11 +65,9 @@ cat << EOF
 </div>
 <div class="card-body">
 <h5 class="card-title">Heater Status: <b>$status</b></h5>
-<p>
 <form action="switch.sh" method="GET">
-<button type="submit" name="state" class="btn btn-success btn-lg" value="1">turn on</button>
-</p><p><button name="state" class="btn btn-danger btn-lg" value="0">turn off</button>
-</form></p>
+<p>$toggle_btn</p>
+</form>
 </div>
 <div class="card-footer text-body-secondary">
   Current temp: $temp_display<br>

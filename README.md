@@ -59,7 +59,7 @@ Links provided for your convenience, but buy from whereever you prefer
 7. (optional, requires `enable_temp="yes"`) Set up temperature logging for the chart and monthly stats:
    - `log_temp.sh` writes to `/run/heater-temp.csv` (RAM) to avoid SD card wear
    - Data is flushed to `/var/lib/heater-temp.csv` (disk) weekly
-   - Add these cron entries (`crontab -e`):
+   - Add these cron entries to root's crontab (`sudo crontab -e`), since `/run` and `/var/lib` require root write access:
 
       ```
       * * * * * /usr/lib/cgi-bin/remote-switch/log_temp.sh

@@ -451,16 +451,13 @@ cat << EOF
 var data = [$chart_data];
 var heaterRanges = [$heater_data];
 var coldRanges = [$cold_data];
-var annotations = {};
-heaterRanges.forEach(function(r, i) {
-  annotations['h' + i] = {
-    type: 'box',
-    xMin: r.xMin,
-    xMax: r.xMax,
-    backgroundColor: 'rgba(220, 53, 69, 0.15)',
-    borderWidth: 0
-  };
+var heaterData = data.map(function(d) {
+  for (var j = 0; j < heaterRanges.length; j++) {
+    if (d.x >= heaterRanges[j].xMin && d.x <= heaterRanges[j].xMax) return {x: d.x, y: d.y};
+  }
+  return {x: d.x, y: null};
 });
+var annotations = {};
 coldRanges.forEach(function(r, i) {
   annotations['c' + i] = {
     type: 'box',
@@ -489,6 +486,14 @@ if (data.length > 0) {
         fill: true,
         pointRadius: 0,
         tension: 0.3
+      }, {
+        data: heaterData,
+        borderColor: 'transparent',
+        backgroundColor: 'rgba(220, 53, 69, 0.25)',
+        fill: 'origin',
+        pointRadius: 0,
+        tension: 0.3,
+        spanGaps: false
       }]
     },
     options: {

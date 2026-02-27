@@ -196,6 +196,7 @@ if [[ "$enable_temp" == "yes" ]]; then
 cat << EOF
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2"></script>
 EOF
 fi
 
@@ -247,6 +248,7 @@ cat << EOF
 <div class="card-body">
   <p class="mb-2"><strong>Current:</strong> $temp_display</p>
   <canvas id="tempChart"></canvas>
+  <button id="resetZoom" style="display:none" class="btn btn-sm btn-outline-secondary mt-2" onclick="tempChart.resetZoom()">Reset zoom</button>
   <p id="noChartData" style="display:none" class="text-muted mb-0">No temperature history yet. Data will appear after the logging cron job runs.</p>
 </div>
 </div>
@@ -285,7 +287,7 @@ if (data.length > 0) {
   maxF = Math.ceil(maxF + padF);
   var minC = Math.floor((minF - 32) / 1.8);
   var maxC = Math.ceil((maxF - 32) / 1.8);
-  new Chart(document.getElementById('tempChart'), {
+  var tempChart = new Chart(document.getElementById('tempChart'), {
     type: 'line',
     data: {
       datasets: [{
@@ -299,7 +301,13 @@ if (data.length > 0) {
     },
     options: {
       responsive: true,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        zoom: {
+          zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
+          pan: { enabled: true, mode: 'x' }
+        }
+      },
       scales: {
         x: {
           type: 'time',
@@ -319,6 +327,7 @@ if (data.length > 0) {
       }
     }
   });
+  document.getElementById('resetZoom').style.display = '';
 } else {
   document.getElementById('tempChart').style.display = 'none';
   document.getElementById('noChartData').style.display = 'block';

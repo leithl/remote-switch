@@ -52,7 +52,7 @@ Links provided for your convenience, but buy from whereever you prefer
 
 6. Edit configuration variables:
    - In `switch.sh`: `gpio_pin` (default `17`), `enable_temp` (`"yes"` for temperature features, `"no"` for switch-only)
-   - In `log_temp.sh`: `gpio_pin` (must match `switch.sh`)
+   - In `log_temp.sh`: `gpio_pin` (must match `switch.sh`), `notify_email` (optional — set to an email address to receive monthly summaries via `msmtp`)
    - Copy `switch.sh` and `log_temp.sh` to your cgi-bin
    - `chmod 0755 switch.sh log_temp.sh`
 
@@ -65,10 +65,13 @@ Links provided for your convenience, but buy from whereever you prefer
       ```
       * * * * * /usr/lib/cgi-bin/remote-switch/log_temp.sh
       0 0 * * 0 /usr/lib/cgi-bin/remote-switch/log_temp.sh flush
+      0 0 1 * * /usr/lib/cgi-bin/remote-switch/log_temp.sh rollup
       ```
 
    - Adjust the paths above to match your cgi-bin location
    - Data lost on reboot is limited to ~1 week (since the last flush)
+   - The `rollup` job runs on the 1st of each month, pre-computing the previous month's chart data and stats into `/var/lib/heater-chart/YYYY-MM.dat` so past months load instantly without re-processing raw CSV data
+   - If `notify_email` is set in `log_temp.sh` and `msmtp` is installed/configured, the rollup job also sends a monthly summary email with temperature and runtime stats
   
  It should look something like this:
 

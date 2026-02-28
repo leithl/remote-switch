@@ -13,6 +13,12 @@ for p in "${params[@]}"; do
     state="$val"
   elif [[ "$key" == "range" ]]; then
     range="$val"
+  elif [[ "$key" == "sched_dt" ]]; then
+    sched_dt="$val"
+  elif [[ "$key" == "sched_action" ]]; then
+    sched_action="$val"
+  elif [[ "$key" == "cancel_id" ]]; then
+    cancel_id="$val"
   fi
 done
 
@@ -46,8 +52,52 @@ else
   toggle_btn='<button type="submit" name="state" class="btn btn-danger btn-lg" value="0">turn off</button>'
 fi
 
-# Shared time variables
+# Handle scheduling
 now=$(date +%s)
+sched_csv="/run/heater-schedule.csv"
+sched_msg=""
+if [[ -n "$sched_dt" && ( "$sched_action" == "0" || "$sched_action" == "1" ) ]]; then
+  # URL-decode: %3A -> :, %2F -> /, + -> space
+  sched_dt_decoded=$(echo "$sched_dt" | sed 's/%3A/:/g; s/%2F/\//g; s/+/ /g')
+  sched_epoch=$(date -d "${sched_dt_decoded/T/ }" +%s 2>/dev/null)
+  if [[ -z "$sched_epoch" ]]; then
+    sched_msg='<div class="alert alert-danger alert-sm py-1 mb-2">Invalid date/time.</div>'
+  elif (( sched_epoch <= now )); then
+    sched_msg='<div class="alert alert-warning alert-sm py-1 mb-2">Cannot schedule in the past.</div>'
+  else
+    (
+      flock -x 200
+      echo "$now,$sched_epoch,$sched_action" >> "$sched_csv"
+    ) 200>"${sched_csv}.lock"
+    action_word=$( [[ "$sched_action" == "1" ]] && echo "ON" || echo "OFF" )
+    sched_msg="<div class=\"alert alert-success alert-sm py-1 mb-2\">Scheduled heater $action_word for $(date -d @"$sched_epoch" '+%b %d, %Y %I:%M %p').</div>"
+  fi
+fi
+
+# Handle schedule cancellation
+if [[ -n "$cancel_id" && "$cancel_id" =~ ^[0-9]+$ && -f "$sched_csv" ]]; then
+  (
+    flock -x 200
+    grep -v "^${cancel_id}," "$sched_csv" > "${sched_csv}.tmp"
+    cat "${sched_csv}.tmp" > "$sched_csv"
+    rm -f "${sched_csv}.tmp"
+  ) 200>"${sched_csv}.lock"
+  sched_msg='<div class="alert alert-info alert-sm py-1 mb-2">Schedule cancelled.</div>'
+fi
+
+# Read pending schedules for display
+pending_schedules=""
+if [[ -f "$sched_csv" && -s "$sched_csv" ]]; then
+  while IFS=, read -r sid sepoch saction; do
+    [[ -z "$sid" || -z "$sepoch" || -z "$saction" ]] && continue
+    action_label=$( [[ "$saction" == "1" ]] && echo "Turn ON" || echo "Turn OFF" )
+    sched_time=$(date -d @"$sepoch" '+%b %d, %Y %I:%M %p' 2>/dev/null)
+    [[ -z "$sched_time" ]] && continue
+    pending_schedules="${pending_schedules}<tr><td>$sched_time</td><td>$action_label</td><td><a href=\"switch.sh?cancel_id=$sid\" class=\"btn btn-sm btn-outline-danger py-0\">Cancel</a></td></tr>"
+  done < "$sched_csv"
+fi
+
+# Shared time variables
 ram_csv="/run/heater-temp.csv"
 disk_csv="/var/lib/heater-temp.csv"
 chart_dir="/var/lib/heater-chart"
@@ -441,6 +491,48 @@ EOF
 fi
 
 cat << EOF
+
+<div class="card mb-3">
+<div class="card-header"><h5 class="mb-0">Schedule</h5></div>
+<div class="card-body">
+$sched_msg
+<form action="switch.sh" method="GET" class="row g-2 align-items-end">
+  <div class="col-auto">
+    <label for="sched_dt" class="form-label mb-0 small">Date &amp; Time</label>
+    <input type="datetime-local" id="sched_dt" name="sched_dt" class="form-control form-control-sm" required min="$(date '+%Y-%m-%dT%H:%M')">
+  </div>
+  <div class="col-auto">
+    <label for="sched_action" class="form-label mb-0 small">Action</label>
+    <select id="sched_action" name="sched_action" class="form-select form-select-sm">
+      <option value="1">Turn ON</option>
+      <option value="0">Turn OFF</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <button type="submit" class="btn btn-primary btn-sm">Schedule</button>
+  </div>
+</form>
+EOF
+
+if [[ -n "$pending_schedules" ]]; then
+cat << EOF
+<hr>
+<h6>Pending</h6>
+<div class="table-responsive">
+<table class="table table-sm table-striped mb-0">
+<thead><tr><th>Time</th><th>Action</th><th></th></tr></thead>
+<tbody>
+$pending_schedules
+</tbody>
+</table>
+</div>
+EOF
+fi
+
+cat << EOF
+<p class="text-muted small mb-0 mt-2">Schedules do not survive reboot.</p>
+</div>
+</div>
 
 </div>
 EOF

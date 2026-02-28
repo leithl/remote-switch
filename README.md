@@ -73,7 +73,7 @@ Links provided for your convenience, but buy from whereever you prefer
    - The `rollup` job runs on the 1st of each month, pre-computing the previous month's chart data and stats into `/var/lib/heater-chart/YYYY-MM.dat` so past months load instantly without re-processing raw CSV data
    - If `notify_email` is set in `log_temp.sh` and `msmtp` is installed/configured, the rollup job also sends a monthly summary email with temperature and runtime stats
   
-8. (optional) Scheduling: the web UI includes a scheduler to turn the heater on or off at a future date/time. The `log_temp.sh` cron job (step 7) checks for due schedules every minute and executes them — no additional cron entries needed. Schedules are stored in `/run/heater-schedule.csv` (RAM) and do not survive reboot.
+8. (optional) Scheduling: the web UI includes a scheduler to turn the heater on or off at a future date/time. The `log_temp.sh` cron job (step 7) checks for due schedules every minute and executes them — no additional cron entries needed. Schedules are stored in `/run/heater-schedule.csv` (RAM) and do not survive reboot. After initial setup, run `sudo log_temp.sh` once to create the schedule file, or wait for the cron job to do it within a minute.
 
  It should look something like this:
 

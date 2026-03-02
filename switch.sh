@@ -24,41 +24,35 @@ fi
 value=$(cat "$gpio_value")
 
 echo -e "Content-type: text/html\r\n\r\n"
-echo "<html>"
-echo "<head>"
-echo "<title>Airplane Hanger Heater Control</title>"
-echo "</head>"
-echo "<body>"
 
-# add some simple formatting with bootstrap
-echo "<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>"
+# Determine status text
+if [[ $value -eq 0 ]]; then
+  status="off"
+else
+  status="on"
+fi
 
-echo "<div class="card">"
-
-echo "<div class="card-header">"
-  echo "<h4>Airplane Hanger Heater Control</h4>"
-echo "</div>"
-
-echo "<div class="card-body">"
-echo "<h5 class="card-title">Heater Status: "
-# Check the value and print the state
-  if [[ $value -eq 0 ]]; then
-    echo "<b>off</b>"
-  else
-    echo "<b>on</b>"
-  fi
-echo "</h5>"
-
-echo "<p>
+cat << EOF
+<html>
+<head>
+<title>Airplane Hanger Heater Control</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+</head>
+<body>
+<div class="card">
+<div class="card-header">
+  <h4>Airplane Hanger Heater Control</h4>
+</div>
+<div class="card-body">
+<h5 class="card-title">Heater Status: <b>$status</b></h5>
+<p>
 <form action="test.sh" method="GET">
-<button type="submit" name="state" class=\"btn btn-success btn-lg\" value="1">turn on</button>
-</p><p><button name="state" class=\"btn btn-danger btn-lg\" value="0">turn off</button>
+<button type="submit" name="state" class="btn btn-success btn-lg" value="1">turn on</button>
+</p><p><button name="state" class="btn btn-danger btn-lg" value="0">turn off</button>
 </form></p>
-"
-echo "</div>"
-echo "<p>"
-echo `date`
-echo "</p>"
-echo "</body>"
-echo "</html>"
+</div>
+<p>$(date)</p>
+</body>
+</html>
+EOF

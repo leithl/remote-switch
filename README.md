@@ -58,7 +58,7 @@ Links provided for your convenience, but buy from whereever you prefer
 
 7. (optional) Set up data logging for heater runtime tracking (and temperature charts if `enable_temp="yes"`):
    - `log_temp.sh` records heater state every minute, and temperature if a probe is connected, to `/run/heater-temp.csv` (RAM) to avoid SD card wear
-   - CSV format: `epoch,temp_c,heater_state` (temp is blank if no probe; state is `0`/`1`)
+   - CSV format: `epoch,temp_c,heater_state,ambient_c` (temp/ambient are blank if unavailable; state is `0`/`1`)
    - Data is flushed to `/var/lib/heater-temp.csv` (disk) weekly
    - Add these cron entries to root's crontab (`sudo crontab -e`), since `/run` and `/var/lib` require root write access:
 
@@ -74,6 +74,22 @@ Links provided for your convenience, but buy from whereever you prefer
    - If `notify_email` is set in `log_temp.sh` and `msmtp` is installed/configured, the rollup job also sends a monthly summary email with temperature and runtime stats
   
 8. (optional) Scheduling: the web UI includes a scheduler to turn the heater on or off at a future date/time. The `log_temp.sh` cron job (step 7) checks for due schedules every minute and executes them — no additional cron entries needed. Schedules are stored in `/run/heater-schedule.csv` (RAM) and do not survive reboot. After initial setup, run `sudo log_temp.sh` once to create the schedule file, or wait for the cron job to do it within a minute.
+
+9. (optional) Ambient temperature: the chart can display outdoor ambient temperature as a second line, fetched from [Open-Meteo](https://open-meteo.com/) (free, no API key required). Requires `enable_temp="yes"` in `switch.sh` and `curl` (standard on Raspberry Pi OS).
+   - Copy `.env.example` to `.env` in the same directory as the scripts (e.g. `/usr/lib/cgi-bin/remote-switch/.env`) and edit it
+   - **Option A — airport ICAO code** (recommended for hangar use):
+     ```
+     LOCATION=KLMO
+     ```
+     On the first cron run, the airport is geocoded to lat/lon via the [OurAirports](https://ourairports.com/) public dataset, and `LATITUDE=` / `LONGITUDE=` are automatically appended to `.env`. Geocoding is skipped on all subsequent runs. To re-geocode, remove those two lines from `.env`.
+   - **Option B — direct coordinates**:
+     ```
+     LATITUDE=45.5051
+     LONGITUDE=-122.6750
+     ```
+   - The ambient temp is fetched every 15 minutes (cached in RAM between fetches) to minimise LTE data usage — ~96 API calls/day
+   - The chart legend label shows the airport code (if `LOCATION` is set) or the coordinates (if set directly)
+   - If `.env` is absent or the fetch fails, the chart continues to work normally — ambient data simply won't appear
 
  It should look something like this:
 

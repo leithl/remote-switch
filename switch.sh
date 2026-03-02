@@ -4,6 +4,15 @@
 gpio_pin="17"
 enable_temp="yes"  # set to "no" to disable all temperature features
 
+# Source .env for LOCATION / LATITUDE / LONGITUDE (ambient temp config)
+[[ -f "${0%/*}/.env" ]] && source "${0%/*}/.env"
+ambient_label="Ambient"
+if [[ -n "${LOCATION:-}" ]]; then
+  ambient_label="Ambient ($LOCATION)"
+elif [[ -n "${LATITUDE:-}" && -n "${LONGITUDE:-}" ]]; then
+  ambient_label="Ambient (${LATITUDE}&deg;, ${LONGITUDE}&deg;)"
+fi
+
 # Safely extract known parameters from the query string.
 # The previous approach used eval on raw input, which allows remote code execution.
 IFS='&' read -ra params <<< "$QUERY_STRING"
@@ -206,12 +215,14 @@ done
 
 # Check if chart data comes from a pre-computed .dat file
 chart_from_dat=""
+ambient_data=""
 if [[ "$range" =~ ^[0-9]{4}-[0-9]{2}$ && "$range" != "$cur_month" ]]; then
   dat="$chart_dir/$range.dat"
   if [[ -f "$dat" ]]; then
     chart_data=$(grep '^chart|' "$dat" | cut -d'|' -f2-)
     heater_data=$(grep '^heater|' "$dat" | cut -d'|' -f2-)
     cold_data=$(grep '^cold|' "$dat" | cut -d'|' -f2-)
+    ambient_data=$(grep '^ambient|' "$dat" | cut -d'|' -f2-)
     chart_from_dat="yes"
   fi
 fi
@@ -291,6 +302,19 @@ if [[ "$enable_temp" == "yes" ]]; then
       }
     }
 
+    # Ambient temp chart: 15-min buckets
+    if (need_chart + 0 == 1 && epoch >= cutoff + 0 && epoch < chart_end + 0 && $4 != "") {
+      amb = $4 + 0
+      ab = int(epoch / 900) * 900
+      if (ab != prev_ab && prev_ab != "") {
+        af = (absum / abcnt) * 1.8 + 32
+        ambient = ambient asep sprintf("{x:%d000,y:%.1f}", prev_ab, af)
+        asep = ","
+      }
+      if (ab != prev_ab) { absum = 0; abcnt = 0; prev_ab = ab }
+      absum += amb; abcnt++
+    }
+
     # Heater on/off ranges for chart annotation
     if (need_chart + 0 == 1 && epoch >= cutoff + 0 && epoch < chart_end + 0 && $3 != "") {
       if ($3 + 0 == 1) {
@@ -338,12 +362,20 @@ if [[ "$enable_temp" == "yes" ]]; then
       cranges = cranges csep sprintf("{xMin:%d000,xMax:%d000}", cold_start, cold_last + 60)
     }
     printf "cold|%s\n", cranges
+
+    # Flush last ambient bucket
+    if (need_chart + 0 == 1 && abcnt > 0) {
+      af = (absum / abcnt) * 1.8 + 32
+      ambient = ambient asep sprintf("{x:%d000,y:%.1f}", prev_ab, af)
+    }
+    printf "ambient|%s\n", ambient
   }')
 
   if [[ -z "$chart_from_dat" ]]; then
     chart_data=$(echo "$awk_output" | head -1)
     heater_data=$(echo "$awk_output" | grep '^heater|' | cut -d'|' -f2-)
     cold_data=$(echo "$awk_output" | grep '^cold|' | cut -d'|' -f2-)
+    ambient_data=$(echo "$awk_output" | grep '^ambient|' | cut -d'|' -f2-)
   fi
   live_temp_rows=$(echo "$awk_output" | grep '^temp:' | sed 's/^temp:[^|]*|//')
 fi
@@ -501,6 +533,7 @@ cat << EOF
     <a href="switch.sh?range=30d" class="btn btn-sm $btn_30d">30 Days</a>
     <span class="ms-3 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(220,53,69,0.3);vertical-align:middle"></span> Heater on</span>
     <span class="ms-2 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(255,152,0,0.3);vertical-align:middle"></span> &le; 48&deg;F</span>
+    <span class="ms-2 small text-muted"><span style="display:inline-block;width:20px;border-top:2px solid rgb(34,197,94);vertical-align:middle"></span> $ambient_label</span>
   </div>
   <canvas id="tempChart"></canvas>
   <button id="resetZoom" style="display:none" class="btn btn-sm btn-outline-secondary mt-2" onclick="tempChart.resetZoom()">Reset zoom</button>
@@ -577,6 +610,7 @@ cat << EOF
 var data = [$chart_data];
 var heaterRanges = [$heater_data];
 var coldRanges = [$cold_data];
+var ambientData = [$ambient_data];
 var heaterData = data.map(function(d) {
   var bucketEnd = d.x + 900000;
   for (var j = 0; j < heaterRanges.length; j++) {
@@ -606,6 +640,7 @@ coldRanges.forEach(function(r, i) {
 });
 if (data.length > 0) {
   var tempsF = data.map(function(d) { return d.y; });
+  ambientData.forEach(function(d) { if (d.y !== null && d.y !== undefined) tempsF.push(d.y); });
   var minF = Math.min.apply(null, tempsF);
   var maxF = Math.max.apply(null, tempsF);
   var padF = Math.max((maxF - minF) * 0.1, 1);
@@ -631,6 +666,14 @@ if (data.length > 0) {
         pointRadius: 0,
         tension: 0.3,
         spanGaps: false
+      }, {
+        data: ambientData,
+        borderColor: 'rgb(34, 197, 94)',
+        backgroundColor: 'transparent',
+        fill: false,
+        pointRadius: 0,
+        tension: 0.3,
+        spanGaps: true
       }]
     },
     options: {

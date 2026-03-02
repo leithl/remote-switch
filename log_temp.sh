@@ -9,6 +9,9 @@ disk_csv="/var/lib/heater-temp.csv"
 chart_dir="/var/lib/heater-chart"
 sched_csv="/run/heater-schedule.csv"
 
+# Source .env for LOCATION / LATITUDE / LONGITUDE (ambient temp config)
+[[ -f "${0%/*}/.env" ]] && source "${0%/*}/.env"
+
 # Flush mode: persist RAM data to disk and clear RAM
 if [[ "$1" == "flush" ]]; then
   if [[ -s "$ram_csv" ]]; then
@@ -68,6 +71,19 @@ if [[ "$1" == "rollup" ]]; then
       }
     }
 
+    # Ambient temp chart: 15-min buckets
+    if ($4 != "") {
+      amb = $4 + 0
+      ab = int(epoch / 900) * 900
+      if (ab != prev_ab && prev_ab != "") {
+        af = (absum / abcnt) * 1.8 + 32
+        ambient = ambient asep sprintf("{x:%d000,y:%.1f}", prev_ab, af)
+        asep = ","
+      }
+      if (ab != prev_ab) { absum = 0; abcnt = 0; prev_ab = ab }
+      absum += amb; abcnt++
+    }
+
     # Runtime stats + heater on/off ranges
     if ($3 != "") {
       rcnt++
@@ -89,6 +105,13 @@ if [[ "$1" == "rollup" ]]; then
       chart = chart sep sprintf("{x:%d000,y:%.1f}", prev_b, f)
     }
     print "chart|" chart
+
+    # Flush last ambient bucket
+    if (abcnt > 0) {
+      af = (absum / abcnt) * 1.8 + 32
+      ambient = ambient asep sprintf("{x:%d000,y:%.1f}", prev_ab, af)
+    }
+    print "ambient|" ambient
 
     # Temp stats row
     if (tcnt > 0) {
@@ -140,7 +163,7 @@ if [[ "$1" == "rollup" ]]; then
   }')
 
   # Write .dat file (chart, temp, runtime lines only)
-  echo "$awk_output" | grep -E '^(chart|temp|runtime|heater|cold)\|' > "$chart_dir/$prev_month.dat"
+  echo "$awk_output" | grep -E '^(chart|ambient|temp|runtime|heater|cold)\|' > "$chart_dir/$prev_month.dat"
 
   # Send email summary if configured
   if [[ -n "$notify_email" ]] && command -v msmtp &>/dev/null; then
@@ -215,4 +238,41 @@ w1_device=$(echo /sys/bus/w1/devices/28-*/w1_slave)
 if [[ -f "$w1_device" ]] && head -1 "$w1_device" | grep -q "YES$"; then
   temp_c=$(awk -F 't=' '/t=/{printf "%.1f", $2/1000}' "$w1_device")
 fi
-echo "$(date +%s),$temp_c,$heater_state" >> "$ram_csv"
+
+# Resolve lat/lon for ambient temp: geocode LOCATION if LATITUDE/LONGITUDE not set
+latitude="${LATITUDE:-}"; longitude="${LONGITUDE:-}"
+if [[ ( -z "$latitude" || -z "$longitude" ) && -n "${LOCATION:-}" ]]; then
+  _env_file="${0%/*}/.env"
+  _csv=$(curl -sf --max-time 15 \
+    "https://davidmegginson.github.io/ourairports-data/airports.csv" 2>/dev/null)
+  if [[ -n "$_csv" ]]; then
+    read -r latitude longitude <<< "$(printf '%s' "$_csv" | awk -F, -v loc="$LOCATION" \
+      'NR>1 { gsub(/"/, "", $2); gsub(/"/, "", $5); gsub(/"/, "", $6)
+              if ($2 == loc) { print $5, $6; exit } }')"
+    if [[ -n "$latitude" && -n "$longitude" ]]; then
+      printf '\nLATITUDE=%s\nLONGITUDE=%s\n' "$latitude" "$longitude" >> "$_env_file"
+    fi
+  fi
+fi
+
+# Fetch ambient temperature (cached 15 minutes to reduce LTE data usage)
+ambient_c=""
+if [[ -n "$latitude" && -n "$longitude" ]]; then
+  _amb_cache="/run/heater-ambient.tmp"
+  _now=$(date +%s)
+  if [[ -f "$_amb_cache" ]]; then
+    IFS=, read -r _cached_ts _cached_val < "$_amb_cache"
+    (( _now - _cached_ts < 900 )) && ambient_c="$_cached_val"
+  fi
+  if [[ -z "$ambient_c" ]]; then
+    _resp=$(curl -sf --max-time 5 \
+      "https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m" \
+      2>/dev/null)
+    if [[ -n "$_resp" ]]; then
+      ambient_c=$(printf '%s' "$_resp" | grep -o '"temperature_2m":[0-9.-]*' | grep -o '[0-9.-]*$')
+      [[ -n "$ambient_c" ]] && printf '%s,%s\n' "$_now" "$ambient_c" > "$_amb_cache"
+    fi
+  fi
+fi
+
+echo "$(date +%s),$temp_c,$heater_state,$ambient_c" >> "$ram_csv"

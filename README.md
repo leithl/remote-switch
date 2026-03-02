@@ -76,8 +76,6 @@ Copy the project files to your cgi-bin directory (e.g. `/usr/lib/cgi-bin/remote-
 sudo mkdir -p /usr/lib/cgi-bin/remote-switch/templates
 sudo cp aggregate.py config.py log_temp.py switch.py /usr/lib/cgi-bin/remote-switch/
 sudo cp templates/index.html /usr/lib/cgi-bin/remote-switch/templates/
-sudo chmod 0755 /usr/lib/cgi-bin/remote-switch/switch.py
-sudo chmod 0755 /usr/lib/cgi-bin/remote-switch/log_temp.py
 ```
 
 ### 6. Configuration
@@ -191,53 +189,6 @@ To minimise SD card writes on the Raspberry Pi, all per-minute data is written t
 /run/heater.db                  ← RAM (tmpfs). Volatile. Written every minute.
 /var/lib/heater/heater.db       ← Disk (SD card). Written weekly (flush) + monthly (rollup).
 /run/heater-ambient.tmp         ← Ambient temp cache (15-min TTL, ~50 bytes).
-```
-
----
-
-## Updating an Existing Install
-
-**Do not `git pull` to update** — the pull will delete the bash scripts before you've verified the Python version works. Instead, copy the Python files manually first, test, then pull when ready.
-
-```bash
-# 1. Install the Python dependency
-sudo apt install python3-jinja2
-
-
-# 2. Create the disk DB directory (if not already done)
-sudo mkdir -p /var/lib/heater
-sudo chown root:www-data /var/lib/heater
-sudo chmod 775 /var/lib/heater
-
-# 3. Copy the new Python files alongside the existing bash scripts
-sudo cp aggregate.py config.py log_temp.py switch.py /usr/lib/cgi-bin/remote-switch/
-sudo mkdir -p /usr/lib/cgi-bin/remote-switch/templates
-sudo cp templates/index.html /usr/lib/cgi-bin/remote-switch/templates/
-sudo chmod 0755 /usr/lib/cgi-bin/remote-switch/switch.py
-sudo chmod 0755 /usr/lib/cgi-bin/remote-switch/log_temp.py
-
-# 4. Import your existing CSV history into SQLite
-#    (copy migrate.py to the Pi — it is not part of the main repo)
-python3 /usr/lib/cgi-bin/remote-switch/migrate.py
-
-# 5. Fix database permissions (created by root in step 4)
-sudo chown root:www-data /var/lib/heater/heater.db
-sudo chmod 664 /var/lib/heater/heater.db
-
-# 6. Open switch.py in a browser to verify: chart, stats, and controls all work
-#    e.g. http://<pi-ip>/cgi-bin/remote-switch/switch.py
-
-# 7. When satisfied, update the crontab (sudo crontab -e):
-#    Replace:  * * * * * .../log_temp.sh
-#    With:     * * * * * .../log_temp.py
-#    (and the flush/rollup lines likewise)
-
-# 8. Pull to clean up the old shell scripts from the repo checkout
-git pull
-
-# 9. Remove old CSV/chart files (now imported into SQLite)
-rm -f /var/lib/heater-temp.csv
-rm -rf /var/lib/heater-chart/
 ```
 
 ---

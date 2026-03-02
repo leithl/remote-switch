@@ -85,6 +85,7 @@ if [[ "$1" == "rollup" ]]; then
       astsum += amb; astcnt++
       if (astcnt == 1 || amb < astmin) astmin = amb
       if (astcnt == 1 || amb > astmax) astmax = amb
+      if (amb <= 8.89) astcold++
     }
 
     # Runtime stats + heater on/off ranges
@@ -120,8 +121,9 @@ if [[ "$1" == "rollup" ]]; then
     if (astcnt > 0) {
       avg_ac = astsum / astcnt; avg_af = avg_ac * 1.8 + 32
       min_af = astmin * 1.8 + 32; max_af = astmax * 1.8 + 32
-      printf "ambient_stat|<tr><td>%s</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td></tr>\n", \
-        m_label, avg_af, avg_ac, min_af, astmin, max_af, astmax
+      acold_hrs = astcold / 60
+      printf "ambient_stat|<tr><td>%s</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td><td>%.1f</td></tr>\n", \
+        m_label, avg_af, avg_ac, min_af, astmin, max_af, astmax, acold_hrs
     }
 
     # Temp stats row

@@ -329,6 +329,7 @@ if [[ "$enable_temp" == "yes" ]]; then
             astsum[i] += amb; astcnt[i]++
             if (!(i in astmin) || amb < astmin[i]) astmin[i] = amb
             if (!(i in astmax) || amb > astmax[i]) astmax[i] = amb
+            if (amb <= 8.89) acmins[i]++
           }
           break
         }
@@ -395,8 +396,9 @@ if [[ "$enable_temp" == "yes" ]]; then
       if (astcnt[i] + 0 == 0) continue
       avg_ac = astsum[i] / astcnt[i]; avg_af = avg_ac * 1.8 + 32
       min_af = astmin[i] * 1.8 + 32; max_af = astmax[i] * 1.8 + 32
-      printf "ambient_stat:%s|<tr onclick=\"location='"'"'switch.sh?range=%s'"'"'\" style=\"cursor:pointer\"><td>%s</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td></tr>\n", \
-        keys[i], keys[i], labels[i], avg_af, avg_ac, min_af, astmin[i], max_af, astmax[i]
+      acold_hrs = (acmins[i] + 0) / 60
+      printf "ambient_stat:%s|<tr onclick=\"location='"'"'switch.sh?range=%s'"'"'\" style=\"cursor:pointer\"><td>%s</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td><td>%.1f</td></tr>\n", \
+        keys[i], keys[i], labels[i], avg_af, avg_ac, min_af, astmin[i], max_af, astmax[i], acold_hrs
     }
   }')
 
@@ -468,7 +470,7 @@ for mk in "${mk_arr[@]}"; do
     row=$(grep '^ambient_stat|' "$dat" | cut -d'|' -f2-)
     if [[ -n "$row" ]]; then
       row="${row/<tr>/<tr onclick=\"location=\'switch.sh?range=$mk\'\" style=\"cursor:pointer\">}"
-      row=$(printf '%s' "$row" | sed 's|<td>[^<]*</td>|<td class="ps-3 text-muted small">Outdoor</td>|; s|</tr>|<td class="text-muted">\&mdash;</td></tr>|')
+      row=$(printf '%s' "$row" | sed 's|<td>[^<]*</td>|<td class="ps-3 text-muted small">Outdoor</td>|')
       combined_stats_rows="${combined_stats_rows}${row}
 "
     fi
@@ -478,7 +480,7 @@ for mk in "${mk_arr[@]}"; do
 "
     row=$(echo "$awk_output" 2>/dev/null | grep "^ambient_stat:$mk|" | sed 's/^ambient_stat:[^|]*|//')
     if [[ -n "$row" ]]; then
-      row=$(printf '%s' "$row" | sed 's|<td>[^<]*</td>|<td class="ps-3 text-muted small">Outdoor</td>|; s|</tr>|<td class="text-muted">\&mdash;</td></tr>|')
+      row=$(printf '%s' "$row" | sed 's|<td>[^<]*</td>|<td class="ps-3 text-muted small">Outdoor</td>|')
       combined_stats_rows="${combined_stats_rows}${row}
 "
     fi

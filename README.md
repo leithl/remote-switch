@@ -51,8 +51,21 @@ Links provided for your convenience, but buy from whereever you prefer
 5. (optional) I installed `openvpn` to connect to an existing private network
 
 6. Edit `switch.sh` to have the correct `$gpio_pin` value for the GPIO pin you used for the switch control
-   - copy to your cgi-bin
-   - `chmod 0755 switch.sh`
+   - copy `switch.sh` and `log_temp.sh` to your cgi-bin
+   - `chmod 0755 switch.sh log_temp.sh`
+
+7. (optional) Set up temperature logging for the chart and monthly stats:
+   - `log_temp.sh` writes to `/run/heater-temp.csv` (RAM) to avoid SD card wear
+   - Data is flushed to `/var/lib/heater-temp.csv` (disk) weekly
+   - Add these cron entries (`crontab -e`):
+
+      ```
+      * * * * * /usr/lib/cgi-bin/remote-switch/log_temp.sh
+      0 0 * * 0 /usr/lib/cgi-bin/remote-switch/log_temp.sh flush
+      ```
+
+   - Adjust the paths above to match your cgi-bin location
+   - Data lost on reboot is limited to ~1 week (since the last flush)
   
  It should look something like this:
 

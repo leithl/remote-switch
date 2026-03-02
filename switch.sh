@@ -47,7 +47,7 @@ cat << EOF
 <div class="card-body">
 <h5 class="card-title">Heater Status: <b>$status</b></h5>
 <p>
-<form action="test.sh" method="GET">
+<form action="switch.sh" method="GET">
 <button type="submit" name="state" class="btn btn-success btn-lg" value="1">turn on</button>
 </p><p><button name="state" class="btn btn-danger btn-lg" value="0">turn off</button>
 </form></p>

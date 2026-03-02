@@ -83,9 +83,6 @@ if [[ "$enable_temp" == "yes" ]]; then
   'BEGIN {
     nm = split(m_starts, starts, "|")
     split(m_labels, labels, "|")
-    for (i = 1; i < nm; i++)
-      tdays[i] = int((starts[i+1] + 0 - starts[i] - 0) / 86400)
-    today_dom = int((now + 0 - starts[nm-1] + 0) / 86400) + 1
     sep = ""
   }
   {
@@ -110,10 +107,6 @@ if [[ "$enable_temp" == "yes" ]]; then
         msum[i] += temp; mcnt[i]++
         if (!(i in mmin) || temp < mmin[i]) mmin[i] = temp
         if (!(i in mmax) || temp > mmax[i]) mmax[i] = temp
-        day = int((epoch - starts[i]) / 86400) + 1
-        if (day < 1) day = 1
-        if (day > tdays[i]) day = tdays[i]
-        md[i "," day] = 1
         break
       }
     }
@@ -130,32 +123,13 @@ if [[ "$enable_temp" == "yes" ]]; then
     for (i = 1; i < nm; i++) {
       if (mcnt[i] + 0 == 0) continue
 
-      # Build date range from days with data
-      range = ""; rs = 0; re = 0
-      max_d = (i == nm - 1) ? today_dom : tdays[i]
-      for (d = 1; d <= max_d; d++) {
-        if ((i "," d) in md) {
-          if (rs == 0) rs = d
-          re = d
-        } else if (rs > 0) {
-          if (range != "") range = range ", "
-          range = range (rs == re ? rs : rs "-" re)
-          rs = 0
-        }
-      }
-      if (rs > 0) {
-        if (range != "") range = range ", "
-        range = range (rs == re ? rs : rs "-" re)
-      }
-
-      # Check if month has complete data
-      complete = (i < nm - 1) ? 1 : 0
-      if (complete) {
-        for (d = 1; d <= tdays[i]; d++) {
-          if (!((i "," d) in md)) { complete = 0; break }
-        }
-      }
-      lbl = complete ? labels[i] : labels[i] " (" range ")"
+      # Calculate data coverage: actual readings vs possible (1 per minute)
+      if (i == nm - 1)
+        possible = int((now + 0 - starts[i] + 0) / 60)
+      else
+        possible = int((starts[i+1] + 0 - starts[i] + 0) / 60)
+      pct = (possible > 0) ? (mcnt[i] / possible) * 100 : 0
+      lbl = (pct >= 100) ? labels[i] : sprintf("%s (%.1f%%)", labels[i], pct)
 
       avg_c = msum[i] / mcnt[i]; avg_f = avg_c * 1.8 + 32
       min_f = mmin[i] * 1.8 + 32; max_f = mmax[i] * 1.8 + 32

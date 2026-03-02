@@ -458,6 +458,16 @@ var heaterData = data.map(function(d) {
   }
   return {x: d.x, y: null};
 });
+for (var i = 0; i < heaterData.length; i++) {
+  if (heaterData[i].y !== null) {
+    var hasPrev = i > 0 && heaterData[i-1].y !== null;
+    var hasNext = i < heaterData.length - 1 && heaterData[i+1].y !== null;
+    if (!hasPrev && !hasNext) {
+      if (i < heaterData.length - 1) heaterData[i+1] = {x: data[i+1].x, y: data[i+1].y};
+      else if (i > 0) heaterData[i-1] = {x: data[i-1].x, y: data[i-1].y};
+    }
+  }
+}
 var annotations = {};
 coldRanges.forEach(function(r, i) {
   annotations['c' + i] = {

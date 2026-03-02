@@ -53,22 +53,30 @@ sudo apt install apache2
 sudo usermod -a -G gpio www-data
 ```
 
-Enable CGI in Apache if not already active:
+Enable CGI and mod_wsgi:
 
 ```bash
-sudo a2enmod cgi
+sudo apt install python3-jinja2 libapache2-mod-wsgi-py3
+sudo a2enmod cgi wsgi
+```
+
+Create the site config for mod_wsgi (keeps Python alive between requests for fast page loads):
+
+```bash
+sudo tee /etc/apache2/conf-available/heater.conf << 'EOF'
+WSGIDaemonProcess heater python-path=/usr/lib/cgi-bin/remote-switch processes=1 threads=2 display-name=heater
+WSGIScriptAlias /cgi-bin/remote-switch/switch.py /usr/lib/cgi-bin/remote-switch/switch.py
+<Directory /usr/lib/cgi-bin/remote-switch>
+    WSGIProcessGroup heater
+    WSGIApplicationGroup %{GLOBAL}
+    Require all granted
+</Directory>
+EOF
+sudo a2enconf heater
 sudo systemctl restart apache2
 ```
 
-### 4. Python Dependency
-
-Install Jinja2 (the only non-stdlib dependency):
-
-```bash
-sudo apt install python3-jinja2
-```
-
-### 5. Deploy Files
+### 4. Deploy Files
 
 Clone the repository into your cgi-bin directory:
 
@@ -78,7 +86,7 @@ sudo git clone https://github.com/leithl/remote-switch.git /usr/lib/cgi-bin/remo
 
 Future updates are then just `sudo git pull` from that directory.
 
-### 6. Configuration
+### 5. Configuration
 
 Edit `/usr/lib/cgi-bin/remote-switch/config.py` for hardware settings:
 
@@ -87,7 +95,7 @@ GPIO_PIN    = "17"    # GPIO pin connected to your relay
 ENABLE_TEMP = True    # set to False to disable all temperature features
 ```
 
-### 7. Disk Storage Permissions
+### 6. Disk Storage Permissions
 
 The logger writes to SQLite on disk at `/var/lib/heater/heater.db`. The directory needs to be writable by both root (cron) and `www-data` (Apache):
 
@@ -99,7 +107,7 @@ sudo chmod 2775 /var/lib/heater
 
 The database file is created automatically on the first cron run and its permissions are set correctly by the logger — no manual step needed.
 
-### 8. Cron Jobs
+### 7. Cron Jobs
 
 Add these entries to root's crontab (`sudo crontab -e`):
 
@@ -116,7 +124,7 @@ What each job does:
 
 Data lost on reboot is limited to at most ~1 week (since the last flush). This matches the previous CSV-based behaviour.
 
-### 9. Firewall
+### 8. Firewall
 
 Install and configure a firewall:
 
@@ -127,7 +135,7 @@ sudo ufw allow http
 sudo ufw enable
 ```
 
-### 10. (optional) VPN
+### 9. (optional) VPN
 
 Install OpenVPN or WireGuard to connect to an existing private network.
 

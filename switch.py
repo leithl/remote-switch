@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """
-switch.py — Python CGI replacing switch.sh.
+switch.py — WSGI application (Apache mod_wsgi) with CGI fallback.
 
-Serves the heater control web UI via Apache CGI.
+mod_wsgi keeps this process alive between requests, so Python startup and
+module imports only happen once — eliminating the ~10s CGI startup cost on
+a Pi Zero W.
+
+When invoked directly (python3 switch.py) it falls back to CGI via wsgiref.
 """
 
 import html
@@ -13,7 +17,7 @@ import urllib.parse
 from datetime import date, datetime
 from pathlib import Path
 
-# Ensure local modules are importable when run as CGI (Apache doesn't add script dir to sys.path)
+# Ensure local modules are importable when run as WSGI/CGI
 sys.path.insert(0, str(Path(__file__).parent))
 
 import aggregate
@@ -24,26 +28,50 @@ try:
 except ImportError:
     Markup = str  # type: ignore[assignment,misc]  # fallback for dev environments without jinja2
 
+# Module-level Jinja2 environment — created once per process, reused on every request.
+_jinja_env = None
+
+
+def _get_jinja_env():
+    global _jinja_env
+    if _jinja_env is None:
+        from jinja2 import Environment, FileSystemLoader, select_autoescape
+        _jinja_env = Environment(
+            loader=FileSystemLoader(str(Path(__file__).parent / "templates")),
+            autoescape=select_autoescape(["html"]),
+        )
+    return _jinja_env
+
+
 # ---------------------------------------------------------------------------
-# CGI helpers
+# Early-exit exception (replaces sys.exit + sys.stdout in CGI)
 # ---------------------------------------------------------------------------
 
-def _qs():
+class _Response(Exception):
+    """Raised to short-circuit request handling with an immediate response."""
+    def __init__(self, status, headers, body=b""):
+        self.status = status
+        self.headers = list(headers)
+        self.body = body if isinstance(body, bytes) else body.encode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Request helpers
+# ---------------------------------------------------------------------------
+
+def _qs(environ):
     """Return parsed query string dict (first value per key)."""
-    raw = os.environ.get("QUERY_STRING", "")
+    raw = environ.get("QUERY_STRING", "")
     params = urllib.parse.parse_qs(raw, keep_blank_values=False)
     return {k: v[0] for k, v in params.items()}
 
 
 def _redirect(location):
-    sys.stdout.write(f"Status: 303 See Other\r\nLocation: {location}\r\n\r\n")
-    sys.exit(0)
+    raise _Response("303 See Other", [("Location", location)])
 
 
 def _respond(content_type, body):
-    sys.stdout.write(f"Content-Type: {content_type}\r\n\r\n")
-    sys.stdout.write(body)
-    sys.exit(0)
+    raise _Response("200 OK", [("Content-Type", content_type)], body)
 
 
 # ---------------------------------------------------------------------------
@@ -129,17 +157,32 @@ def _old_cache_ambient_row(mk, html_row):
         f'<tr onclick="location=\'switch.py?range={html.escape(mk)}\'" style="cursor:pointer">',
         1,
     )
-    # Replace first <td>...</td> with the Outdoor cell
     row = re.sub(r'<td>[^<]*</td>', '<td class="ps-3 text-muted small">Outdoor</td>', row, count=1)
     return Markup(row)
 
 
 # ---------------------------------------------------------------------------
-# Main CGI handler
+# WSGI entry point
 # ---------------------------------------------------------------------------
 
-def main():
-    qs = _qs()
+def application(environ, start_response):
+    """WSGI callable — mod_wsgi calls this for every request."""
+    try:
+        status, headers, body = _handle(environ)
+    except _Response as r:
+        start_response(r.status, r.headers)
+        return [r.body]
+    start_response(status, headers)
+    return [body]
+
+
+# ---------------------------------------------------------------------------
+# Main request handler
+# ---------------------------------------------------------------------------
+
+def _handle(environ):
+    """Handle one request. Returns (status_str, headers_list, body_bytes)."""
+    qs = _qs(environ)
 
     # --- Manifest ---
     if qs.get("manifest") == "1":
@@ -172,12 +215,11 @@ def main():
     # --- GPIO check ---
     gpio_path = config._gpio_path()
     if not gpio_path.exists():
-        sys.stdout.write("Content-Type: text/plain\r\n\r\n")
-        sys.stdout.write(
-            f"Error: GPIO pin {config.GPIO_PIN} is not configured "
-            f"({gpio_path} not found)"
+        raise _Response(
+            "200 OK",
+            [("Content-Type", "text/plain")],
+            f"Error: GPIO pin {config.GPIO_PIN} is not configured ({gpio_path} not found)",
         )
-        sys.exit(0)
 
     # --- State change (turn on/off) ---
     state = qs.get("state", "")
@@ -313,7 +355,7 @@ def main():
     if enable_temp:
         conn = config.get_db()
 
-        # Determine which month's cached chart data to use (if any)
+        # Determine whether to use cached chart data
         chart_from_cache = False
         if _is_valid_month(range_param) and range_param != cur_month_date.strftime("%Y-%m"):
             cached = conn.execute(
@@ -328,7 +370,6 @@ def main():
                 chart_from_cache = True
 
         if not chart_from_cache:
-            # Live query for chart data
             rows = config.query_readings(conn, chart_cutoff, chart_end_epoch)
             live_result = aggregate.compute(rows, chart_cutoff, chart_end_epoch)
             chart_data = live_result["chart_data"]
@@ -336,8 +377,7 @@ def main():
             cold_ranges = live_result["cold_ranges"]
             ambient_data = live_result["ambient_data"]
 
-        # Build per-month stats (13 months)
-        # Pre-build month metadata and fetch all cache entries in one query
+        # Build per-month stats (13 months) with batch queries
         month_meta = []
         for i in range(12, -1, -1):
             md = config.subtract_months(cur_month_date, i)
@@ -359,7 +399,7 @@ def main():
             ).fetchall()
         }
 
-        # Find live months (no cache or current month) and fetch all their rows at once
+        # Fetch all live-month rows in one batch query
         live_months = [
             (mk, lbl, m_start, effective_end)
             for mk, lbl, m_start, m_end, effective_end, is_current in month_meta
@@ -371,7 +411,6 @@ def main():
             batch_start = min(m[2] for m in live_months)
             batch_end = max(m[3] for m in live_months)
             all_live_rows = config.query_readings(conn, batch_start, batch_end)
-            # Bucket rows into each live month
             for mk, lbl, m_start, effective_end in live_months:
                 live_rows_by_month[mk] = [
                     r for r in all_live_rows if m_start <= r[0] < effective_end
@@ -434,18 +473,11 @@ def main():
         conn.close()
 
     # --- Render template ---
-    from jinja2 import Environment, FileSystemLoader, select_autoescape
-
-    template_dir = Path(__file__).parent / "templates"
-    env = Environment(
-        loader=FileSystemLoader(str(template_dir)),
-        autoescape=select_autoescape(["html"]),
-    )
+    template = _get_jinja_env().get_template("index.html")
 
     now_dt_min = datetime.now().strftime("%Y-%m-%dT%H:%M")
     now_str = datetime.now().strftime("%a %b %d %H:%M:%S %Z %Y")
 
-    template = env.get_template("index.html")
     body = template.render(
         enable_temp=enable_temp,
         heater_on=heater_on,
@@ -468,8 +500,11 @@ def main():
         now_str=now_str,
     )
 
-    sys.stdout.write("Content-Type: text/html; charset=utf-8\r\n\r\n")
-    sys.stdout.write(body)
+    return (
+        "200 OK",
+        [("Content-Type", "text/html; charset=utf-8")],
+        body.encode("utf-8"),
+    )
 
 
 def _is_valid_month(s):
@@ -483,4 +518,6 @@ def _is_valid_month(s):
 
 
 if __name__ == "__main__":
-    main()
+    # CGI fallback: wraps the WSGI app for direct invocation / testing.
+    from wsgiref.handlers import CGIHandler
+    CGIHandler().run(application)

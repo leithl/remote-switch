@@ -709,7 +709,8 @@ if (data.length > 0) {
         backgroundColor: 'transparent',
         fill: false,
         pointRadius: 0,
-        tension: 0.3,
+        tension: 0.4,
+        cubicInterpolationMode: 'monotone',
         spanGaps: true
       }]
     },

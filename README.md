@@ -55,5 +55,5 @@ Links provided for your convenience, but buy from whereever you prefer
    - `chmod 0755 switch.sh`
   
  It should look something like this:
+ <img width="367" height="338" alt="image" src="https://github.com/user-attachments/assets/cf57c170-1fed-49d0-ad67-8e05793cb1e2" />
 
-![Screenshot_20240122-141822](https://github.com/leithl/remote-switch/assets/109554/7746230c-8149-42dd-b0e1-d68cac6025ed)

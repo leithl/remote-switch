@@ -15,13 +15,20 @@ gpio_pin="17"
 gpio_file="/sys/class/gpio/gpio$gpio_pin"
 gpio_value="$gpio_file/value"
 
+# Bail out early if the GPIO pin hasn't been exported
+if [[ ! -f "$gpio_value" ]]; then
+  echo -e "Content-type: text/plain\r\n\r\n"
+  echo "Error: GPIO pin $gpio_pin is not configured ($gpio_value not found)"
+  exit 1
+fi
+
 # Only write to GPIO if state is exactly "0" or "1"
 if [[ "$state" == "0" || "$state" == "1" ]]; then
   echo "$state" > "$gpio_value"
 fi
 
 # Read the value from the GPIO file
-value=$(cat "$gpio_value")
+value=$(< "$gpio_value")
 
 echo -e "Content-type: text/html\r\n\r\n"
 

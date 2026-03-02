@@ -33,9 +33,11 @@ value=$(< "$gpio_value")
 # Determine status text and toggle button
 if [[ $value -eq 0 ]]; then
   status="off"
+  header_class="text-bg-secondary"
   toggle_btn='<button type="submit" name="state" class="btn btn-success btn-lg" value="1">turn on</button>'
 else
   status="on"
+  header_class="text-bg-success"
   toggle_btn='<button type="submit" name="state" class="btn btn-danger btn-lg" value="0">turn off</button>'
 fi
 
@@ -60,7 +62,7 @@ cat << EOF
 </head>
 <body>
 <div class="card">
-<div class="card-header">
+<div class="card-header $header_class">
   <h4>Airplane Hanger Heater Control</h4>
 </div>
 <div class="card-body">

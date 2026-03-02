@@ -191,6 +191,7 @@ fi
 # Collect pre-computed stats from .dat files for past months
 pre_temp_rows=""
 pre_runtime_rows=""
+pre_ambient_stat_rows=""
 IFS='|' read -ra mk_arr <<< "$month_keys"
 for mk in "${mk_arr[@]}"; do
   dat="$chart_dir/$mk.dat"
@@ -200,6 +201,9 @@ for mk in "${mk_arr[@]}"; do
 "
     row=$(grep '^runtime|' "$dat" | cut -d'|' -f2-)
     [[ -n "$row" ]] && pre_runtime_rows="${pre_runtime_rows}${row}
+"
+    row=$(grep '^ambient_stat|' "$dat" | cut -d'|' -f2-)
+    [[ -n "$row" ]] && pre_ambient_stat_rows="${pre_ambient_stat_rows}${row}
 "
   fi
 done
@@ -302,17 +306,33 @@ if [[ "$enable_temp" == "yes" ]]; then
       }
     }
 
-    # Ambient temp chart: 15-min buckets
-    if (need_chart + 0 == 1 && epoch >= cutoff + 0 && epoch < chart_end + 0 && $4 != "") {
+    # Ambient temp chart: 15-min buckets + monthly stats
+    if ($4 != "") {
       amb = $4 + 0
-      ab = int(epoch / 900) * 900
-      if (ab != prev_ab && prev_ab != "") {
-        af = (absum / abcnt) * 1.8 + 32
-        ambient = ambient asep sprintf("{x:%d000,y:%.1f}", prev_ab, af)
-        asep = ","
+
+      # Chart buckets within selected range
+      if (need_chart + 0 == 1 && epoch >= cutoff + 0 && epoch < chart_end + 0) {
+        ab = int(epoch / 900) * 900
+        if (ab != prev_ab && prev_ab != "") {
+          af = (absum / abcnt) * 1.8 + 32
+          ambient = ambient asep sprintf("{x:%d000,y:%.1f}", prev_ab, af)
+          asep = ","
+        }
+        if (ab != prev_ab) { absum = 0; abcnt = 0; prev_ab = ab }
+        absum += amb; abcnt++
       }
-      if (ab != prev_ab) { absum = 0; abcnt = 0; prev_ab = ab }
-      absum += amb; abcnt++
+
+      # Monthly stats (only for months that need live computation)
+      for (i = 1; i < nm; i++) {
+        if (epoch >= starts[i] + 0 && epoch < starts[i+1] + 0) {
+          if (keys[i] in live_set) {
+            astsum[i] += amb; astcnt[i]++
+            if (!(i in astmin) || amb < astmin[i]) astmin[i] = amb
+            if (!(i in astmax) || amb > astmax[i]) astmax[i] = amb
+          }
+          break
+        }
+      }
     }
 
     # Heater on/off ranges for chart annotation
@@ -369,6 +389,15 @@ if [[ "$enable_temp" == "yes" ]]; then
       ambient = ambient asep sprintf("{x:%d000,y:%.1f}", prev_ab, af)
     }
     printf "ambient|%s\n", ambient
+
+    # Ambient stats rows for live months
+    for (i = 1; i < nm; i++) {
+      if (astcnt[i] + 0 == 0) continue
+      avg_ac = astsum[i] / astcnt[i]; avg_af = avg_ac * 1.8 + 32
+      min_af = astmin[i] * 1.8 + 32; max_af = astmax[i] * 1.8 + 32
+      printf "ambient_stat:%s|<tr onclick=\"location='"'"'switch.sh?range=%s'"'"'\" style=\"cursor:pointer\"><td>%s</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td></tr>\n", \
+        keys[i], keys[i], labels[i], avg_af, avg_ac, min_af, astmin[i], max_af, astmax[i]
+    }
   }')
 
   if [[ -z "$chart_from_dat" ]]; then
@@ -377,7 +406,6 @@ if [[ "$enable_temp" == "yes" ]]; then
     cold_data=$(echo "$awk_output" | grep '^cold|' | cut -d'|' -f2-)
     ambient_data=$(echo "$awk_output" | grep '^ambient|' | cut -d'|' -f2-)
   fi
-  live_temp_rows=$(echo "$awk_output" | grep '^temp:' | sed 's/^temp:[^|]*|//')
 fi
 
 # Compute runtime stats for live months from raw CSV
@@ -423,32 +451,39 @@ END {
   }
 }')
 
-# Merge pre-computed + live stats rows (pre-computed are older months, live is current)
-stats_rows="${pre_temp_rows}${live_temp_rows}"
 runtime_rows="${pre_runtime_rows}${live_runtime_rows}"
 
-# Add onclick to pre-computed temp rows (they come from .dat without onclick)
-# We need to add clickability to pre-computed rows too
-stats_rows_final=""
+# Build combined stats rows: for each month, hangar row then ambient sub-row (if available)
+combined_stats_rows=""
 IFS='|' read -ra mk_arr <<< "$month_keys"
 for mk in "${mk_arr[@]}"; do
   dat="$chart_dir/$mk.dat"
   if [[ "$mk" != "$cur_month" && -f "$dat" ]]; then
     row=$(grep '^temp|' "$dat" | cut -d'|' -f2-)
     if [[ -n "$row" ]]; then
-      # Add onclick to existing <tr>
       row="${row/<tr>/<tr onclick=\"location=\'switch.sh?range=$mk\'\" style=\"cursor:pointer\">}"
-      stats_rows_final="${stats_rows_final}${row}
+      combined_stats_rows="${combined_stats_rows}${row}
+"
+    fi
+    row=$(grep '^ambient_stat|' "$dat" | cut -d'|' -f2-)
+    if [[ -n "$row" ]]; then
+      row="${row/<tr>/<tr onclick=\"location=\'switch.sh?range=$mk\'\" style=\"cursor:pointer\">}"
+      row=$(printf '%s' "$row" | sed 's|<td>[^<]*</td>|<td class="ps-3 text-muted small">Outdoor</td>|; s|</tr>|<td class="text-muted">—</td></tr>|')
+      combined_stats_rows="${combined_stats_rows}${row}
 "
     fi
   else
-    # Live-computed row (already has onclick from awk)
     row=$(echo "$awk_output" 2>/dev/null | grep "^temp:$mk|" | sed 's/^temp:[^|]*|//')
-    [[ -n "$row" ]] && stats_rows_final="${stats_rows_final}${row}
+    [[ -n "$row" ]] && combined_stats_rows="${combined_stats_rows}${row}
 "
+    row=$(echo "$awk_output" 2>/dev/null | grep "^ambient_stat:$mk|" | sed 's/^ambient_stat:[^|]*|//')
+    if [[ -n "$row" ]]; then
+      row=$(printf '%s' "$row" | sed 's|<td>[^<]*</td>|<td class="ps-3 text-muted small">Outdoor</td>|; s|</tr>|<td class="text-muted">—</td></tr>|')
+      combined_stats_rows="${combined_stats_rows}${row}
+"
+    fi
   fi
 done
-[[ -n "$stats_rows_final" ]] && stats_rows="$stats_rows_final"
 
 # === HTML Output ===
 echo -e "Content-type: text/html\r\n\r\n"
@@ -548,7 +583,7 @@ cat << EOF
 <table class="table table-sm table-striped table-hover mb-0">
 <thead><tr><th>Month</th><th>Avg (&deg;F / &deg;C)</th><th>Min (&deg;F / &deg;C)</th><th>Max (&deg;F / &deg;C)</th><th>Hours &le; 48&deg;F</th></tr></thead>
 <tbody>
-$stats_rows
+$combined_stats_rows
 </tbody>
 </table>
 </div>

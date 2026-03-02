@@ -71,7 +71,7 @@ if [[ "$1" == "rollup" ]]; then
       }
     }
 
-    # Ambient temp chart: 15-min buckets
+    # Ambient temp chart: 15-min buckets + monthly stats
     if ($4 != "") {
       amb = $4 + 0
       ab = int(epoch / 900) * 900
@@ -82,6 +82,9 @@ if [[ "$1" == "rollup" ]]; then
       }
       if (ab != prev_ab) { absum = 0; abcnt = 0; prev_ab = ab }
       absum += amb; abcnt++
+      astsum += amb; astcnt++
+      if (astcnt == 1 || amb < astmin) astmin = amb
+      if (astcnt == 1 || amb > astmax) astmax = amb
     }
 
     # Runtime stats + heater on/off ranges
@@ -112,6 +115,14 @@ if [[ "$1" == "rollup" ]]; then
       ambient = ambient asep sprintf("{x:%d000,y:%.1f}", prev_ab, af)
     }
     print "ambient|" ambient
+
+    # Ambient stats row
+    if (astcnt > 0) {
+      avg_ac = astsum / astcnt; avg_af = avg_ac * 1.8 + 32
+      min_af = astmin * 1.8 + 32; max_af = astmax * 1.8 + 32
+      printf "ambient_stat|<tr><td>%s</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td></tr>\n", \
+        m_label, avg_af, avg_ac, min_af, astmin, max_af, astmax
+    }
 
     # Temp stats row
     if (tcnt > 0) {
@@ -163,7 +174,7 @@ if [[ "$1" == "rollup" ]]; then
   }')
 
   # Write .dat file (chart, temp, runtime lines only)
-  echo "$awk_output" | grep -E '^(chart|ambient|temp|runtime|heater|cold)\|' > "$chart_dir/$prev_month.dat"
+  echo "$awk_output" | grep -E '^(chart|ambient|ambient_stat|temp|runtime|heater|cold)\|' > "$chart_dir/$prev_month.dat"
 
   # Send email summary if configured
   if [[ -n "$notify_email" ]] && command -v msmtp &>/dev/null; then

@@ -54,12 +54,31 @@ if [[ "$1" == "rollup" ]]; then
       }
       if (b != prev_b) { bsum = 0; bcnt = 0; prev_b = b }
       bsum += temp; bcnt++
+
+      # Cold tracking (temp <= 48°F / 8.89°C)
+      if (temp <= 8.89) {
+        cold_mins++
+        if (!in_cold) { cold_start = epoch; in_cold = 1 }
+        cold_last = epoch
+      } else if (in_cold) {
+        cranges = cranges csep sprintf("{xMin:%d000,xMax:%d000}", cold_start, cold_last + 60)
+        csep = ","
+        in_cold = 0
+      }
     }
 
-    # Runtime stats
+    # Runtime stats + heater on/off ranges
     if ($3 != "") {
       rcnt++
-      if ($3 + 0 == 1) on_mins += 1
+      if ($3 + 0 == 1) {
+        on_mins += 1
+        if (!in_h) { h_start = epoch; in_h = 1 }
+        h_last = epoch
+      } else if (in_h) {
+        hranges = hranges hsep sprintf("{xMin:%d000,xMax:%d000}", h_start, h_last + 60)
+        hsep = ","
+        in_h = 0
+      }
     }
   }
   END {
@@ -76,8 +95,9 @@ if [[ "$1" == "rollup" ]]; then
       lbl = (pct >= 100) ? m_label : sprintf("%s (%.1f%%)", m_label, pct)
       avg_c = tsum / tcnt; avg_f = avg_c * 1.8 + 32
       min_f = tmin * 1.8 + 32; max_f = tmax * 1.8 + 32
-      printf "temp|<tr><td>%s</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td></tr>\n", \
-        lbl, avg_f, avg_c, min_f, tmin, max_f, tmax
+      cold_hrs = cold_mins / 60
+      printf "temp|<tr><td>%s</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td><td>%.1f</td></tr>\n", \
+        lbl, avg_f, avg_c, min_f, tmin, max_f, tmax, cold_hrs
     }
 
     # Runtime stats row
@@ -94,6 +114,7 @@ if [[ "$1" == "rollup" ]]; then
     if (tcnt > 0) {
       printf "email_temp|Avg: %.1f°F / %.1f°C, Min: %.1f°F / %.1f°C, Max: %.1f°F / %.1f°C\n", \
         avg_f, avg_c, min_f, tmin, max_f, tmax
+      printf "email_cold|%.1f hours at or below 48°F\n", cold_hrs
     }
     if (rcnt > 0) {
       printf "email_runtime|Total: %.1f hours, Avg: %.1f hours/day\n", hours, avg
@@ -103,14 +124,27 @@ if [[ "$1" == "rollup" ]]; then
       r_pct = (rcnt > 0 && possible > 0) ? (rcnt / possible) * 100 : 0
       printf "email_coverage|Temp: %.1f%%, Heater: %.1f%%\n", t_pct, r_pct
     }
+
+    # Heater on/off ranges for chart annotation
+    if (in_h) {
+      hranges = hranges hsep sprintf("{xMin:%d000,xMax:%d000}", h_start, h_last + 60)
+    }
+    printf "heater|%s\n", hranges
+
+    # Cold ranges (temp <= 48°F)
+    if (in_cold) {
+      cranges = cranges csep sprintf("{xMin:%d000,xMax:%d000}", cold_start, cold_last + 60)
+    }
+    printf "cold|%s\n", cranges
   }')
 
   # Write .dat file (chart, temp, runtime lines only)
-  echo "$awk_output" | grep -E '^(chart|temp|runtime)\|' > "$chart_dir/$prev_month.dat"
+  echo "$awk_output" | grep -E '^(chart|temp|runtime|heater|cold)\|' > "$chart_dir/$prev_month.dat"
 
   # Send email summary if configured
   if [[ -n "$notify_email" ]] && command -v msmtp &>/dev/null; then
     email_temp=$(echo "$awk_output" | grep '^email_temp|' | cut -d'|' -f2)
+    email_cold=$(echo "$awk_output" | grep '^email_cold|' | cut -d'|' -f2)
     email_runtime=$(echo "$awk_output" | grep '^email_runtime|' | cut -d'|' -f2)
     email_coverage=$(echo "$awk_output" | grep '^email_coverage|' | cut -d'|' -f2)
 
@@ -123,6 +157,7 @@ $(printf '=%.0s' {1..40})
 
 Temperature:
   ${email_temp:-No data}
+  ${email_cold:+Cold: $email_cold}
 
 Heater Runtime:
   ${email_runtime:-No data}

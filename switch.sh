@@ -129,6 +129,8 @@ if [[ "$range" =~ ^[0-9]{4}-[0-9]{2}$ && "$range" != "$cur_month" ]]; then
   dat="$chart_dir/$range.dat"
   if [[ -f "$dat" ]]; then
     chart_data=$(grep '^chart|' "$dat" | cut -d'|' -f2-)
+    heater_data=$(grep '^heater|' "$dat" | cut -d'|' -f2-)
+    cold_data=$(grep '^cold|' "$dat" | cut -d'|' -f2-)
     chart_from_dat="yes"
   fi
 fi
@@ -164,30 +166,59 @@ if [[ "$enable_temp" == "yes" ]]; then
   }
   {
     epoch = $1 + 0
-    if (epoch == 0 || $2 == "") next
-    temp = $2 + 0
+    if (epoch == 0) next
 
-    # Chart: 15-min buckets within the selected range
-    if (need_chart + 0 == 1 && epoch >= cutoff + 0 && epoch < chart_end + 0) {
-      b = int(epoch / 900) * 900
-      if (b != prev_b && prev_b != "") {
-        f = (bsum / bcnt) * 1.8 + 32
-        chart = chart sep sprintf("{x:%d000,y:%.1f}", prev_b, f)
-        sep = ","
+    # Temperature chart + monthly stats
+    if ($2 != "") {
+      temp = $2 + 0
+
+      # Chart: 15-min buckets within the selected range
+      if (need_chart + 0 == 1 && epoch >= cutoff + 0 && epoch < chart_end + 0) {
+        b = int(epoch / 900) * 900
+        if (b != prev_b && prev_b != "") {
+          f = (bsum / bcnt) * 1.8 + 32
+          chart = chart sep sprintf("{x:%d000,y:%.1f}", prev_b, f)
+          sep = ","
+        }
+        if (b != prev_b) { bsum = 0; bcnt = 0; prev_b = b }
+        bsum += temp; bcnt++
       }
-      if (b != prev_b) { bsum = 0; bcnt = 0; prev_b = b }
-      bsum += temp; bcnt++
+
+      # Monthly stats (only for months that need live computation)
+      for (i = 1; i < nm; i++) {
+        if (epoch >= starts[i] + 0 && epoch < starts[i+1] + 0) {
+          if (keys[i] in live_set) {
+            msum[i] += temp; mcnt[i]++
+            if (!(i in mmin) || temp < mmin[i]) mmin[i] = temp
+            if (!(i in mmax) || temp > mmax[i]) mmax[i] = temp
+            if (temp <= 8.89) cmins[i]++
+          }
+          break
+        }
+      }
+
+      # Cold range tracking for chart (temp <= 48°F / 8.89°C)
+      if (need_chart + 0 == 1 && epoch >= cutoff + 0 && epoch < chart_end + 0) {
+        if (temp <= 8.89) {
+          if (!in_cold) { cold_start = epoch; in_cold = 1 }
+          cold_last = epoch
+        } else if (in_cold) {
+          cranges = cranges csep sprintf("{xMin:%d000,xMax:%d000}", cold_start, cold_last + 60)
+          csep = ","
+          in_cold = 0
+        }
+      }
     }
 
-    # Monthly stats (only for months that need live computation)
-    for (i = 1; i < nm; i++) {
-      if (epoch >= starts[i] + 0 && epoch < starts[i+1] + 0) {
-        if (keys[i] in live_set) {
-          msum[i] += temp; mcnt[i]++
-          if (!(i in mmin) || temp < mmin[i]) mmin[i] = temp
-          if (!(i in mmax) || temp > mmax[i]) mmax[i] = temp
-        }
-        break
+    # Heater on/off ranges for chart annotation
+    if (need_chart + 0 == 1 && epoch >= cutoff + 0 && epoch < chart_end + 0 && $3 != "") {
+      if ($3 + 0 == 1) {
+        if (!in_h) { h_start = epoch; in_h = 1 }
+        h_last = epoch
+      } else if (in_h) {
+        hranges = hranges hsep sprintf("{xMin:%d000,xMax:%d000}", h_start, h_last + 60)
+        hsep = ","
+        in_h = 0
       }
     }
   }
@@ -210,13 +241,28 @@ if [[ "$enable_temp" == "yes" ]]; then
       lbl = (pct >= 100) ? labels[i] : sprintf("%s (%.1f%%)", labels[i], pct)
       avg_c = msum[i] / mcnt[i]; avg_f = avg_c * 1.8 + 32
       min_f = mmin[i] * 1.8 + 32; max_f = mmax[i] * 1.8 + 32
-      printf "temp:%s|<tr onclick=\"location='"'"'switch.sh?range=%s'"'"'\" style=\"cursor:pointer\"><td>%s</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td></tr>\n", \
-        keys[i], keys[i], lbl, avg_f, avg_c, min_f, mmin[i], max_f, mmax[i]
+      cold_hrs = (cmins[i] + 0) / 60
+      printf "temp:%s|<tr onclick=\"location='"'"'switch.sh?range=%s'"'"'\" style=\"cursor:pointer\"><td>%s</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td><td>%.1f</td></tr>\n", \
+        keys[i], keys[i], lbl, avg_f, avg_c, min_f, mmin[i], max_f, mmax[i], cold_hrs
     }
+
+    # Heater on/off ranges
+    if (in_h) {
+      hranges = hranges hsep sprintf("{xMin:%d000,xMax:%d000}", h_start, h_last + 60)
+    }
+    printf "heater|%s\n", hranges
+
+    # Cold ranges (temp <= 48°F)
+    if (in_cold) {
+      cranges = cranges csep sprintf("{xMin:%d000,xMax:%d000}", cold_start, cold_last + 60)
+    }
+    printf "cold|%s\n", cranges
   }')
 
   if [[ -z "$chart_from_dat" ]]; then
     chart_data=$(echo "$awk_output" | head -1)
+    heater_data=$(echo "$awk_output" | grep '^heater|' | cut -d'|' -f2-)
+    cold_data=$(echo "$awk_output" | grep '^cold|' | cut -d'|' -f2-)
   fi
   live_temp_rows=$(echo "$awk_output" | grep '^temp:' | sed 's/^temp:[^|]*|//')
 fi
@@ -309,6 +355,7 @@ cat << EOF
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
 EOF
 fi
 
@@ -368,6 +415,8 @@ cat << EOF
   <div class="mb-2">
     <a href="switch.sh?range=7d" class="btn btn-sm $btn_7d">7 Days</a>
     <a href="switch.sh?range=30d" class="btn btn-sm $btn_30d">30 Days</a>
+    <span class="ms-3 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(220,53,69,0.3);vertical-align:middle"></span> Heater on</span>
+    <span class="ms-2 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(255,152,0,0.3);vertical-align:middle"></span> &le; 48&deg;F</span>
   </div>
   <canvas id="tempChart"></canvas>
   <button id="resetZoom" style="display:none" class="btn btn-sm btn-outline-secondary mt-2" onclick="tempChart.resetZoom()">Reset zoom</button>
@@ -380,7 +429,7 @@ cat << EOF
 <div class="card-body">
 <div class="table-responsive">
 <table class="table table-sm table-striped table-hover mb-0">
-<thead><tr><th>Month</th><th>Avg (&deg;F / &deg;C)</th><th>Min (&deg;F / &deg;C)</th><th>Max (&deg;F / &deg;C)</th></tr></thead>
+<thead><tr><th>Month</th><th>Avg (&deg;F / &deg;C)</th><th>Min (&deg;F / &deg;C)</th><th>Max (&deg;F / &deg;C)</th><th>Hours &le; 48&deg;F</th></tr></thead>
 <tbody>
 $stats_rows
 </tbody>
@@ -400,6 +449,27 @@ if [[ "$enable_temp" == "yes" ]]; then
 cat << EOF
 <script>
 var data = [$chart_data];
+var heaterRanges = [$heater_data];
+var coldRanges = [$cold_data];
+var annotations = {};
+heaterRanges.forEach(function(r, i) {
+  annotations['h' + i] = {
+    type: 'box',
+    xMin: r.xMin,
+    xMax: r.xMax,
+    backgroundColor: 'rgba(220, 53, 69, 0.15)',
+    borderWidth: 0
+  };
+});
+coldRanges.forEach(function(r, i) {
+  annotations['c' + i] = {
+    type: 'box',
+    xMin: r.xMin,
+    xMax: r.xMax,
+    backgroundColor: 'rgba(255, 152, 0, 0.15)',
+    borderWidth: 0
+  };
+});
 if (data.length > 0) {
   var tempsF = data.map(function(d) { return d.y; });
   var minF = Math.min.apply(null, tempsF);
@@ -425,6 +495,7 @@ if (data.length > 0) {
       responsive: true,
       plugins: {
         legend: { display: false },
+        annotation: { drawTime: 'beforeDatasetsDraw', annotations: annotations },
         zoom: {
           zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
           pan: { enabled: true, mode: 'x' }

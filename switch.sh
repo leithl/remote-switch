@@ -44,6 +44,20 @@ else
   toggle_btn='<button type="submit" name="state" class="btn btn-danger btn-lg" value="0">turn off</button>'
 fi
 
+# Shared time variables for stats processing
+now=$(date +%s)
+month_starts=""
+month_labels=""
+cms=$(date +%Y-%m-01)
+for i in $(seq 12 -1 0); do
+  ms=$(date -d "$cms -$i month" +%s)
+  ml=$(date -d "$cms -$i month" +"%b %Y")
+  month_starts="${month_starts:+$month_starts|}$ms"
+  month_labels="${month_labels:+$month_labels|}$ml"
+done
+next_ms=$(date -d "$cms +1 month" +%s)
+month_starts="$month_starts|$next_ms"
+
 if [[ "$enable_temp" == "yes" ]]; then
   # Read temperature from DS18B20 1-wire probe
   w1_device=$(echo /sys/bus/w1/devices/28-*/w1_slave)
@@ -58,21 +72,7 @@ if [[ "$enable_temp" == "yes" ]]; then
   # Process temperature history for chart and stats
   ram_csv="/run/heater-temp.csv"
   disk_csv="/var/lib/heater-temp.csv"
-  now=$(date +%s)
   seven_days_ago=$((now - 7 * 86400))
-
-  # Pre-compute month boundary epochs and labels for the last 13 months
-  month_starts=""
-  month_labels=""
-  cms=$(date +%Y-%m-01)
-  for i in $(seq 12 -1 0); do
-    ms=$(date -d "$cms -$i month" +%s)
-    ml=$(date -d "$cms -$i month" +"%b %Y")
-    month_starts="${month_starts:+$month_starts|}$ms"
-    month_labels="${month_labels:+$month_labels|}$ml"
-  done
-  next_ms=$(date -d "$cms +1 month" +%s)
-  month_starts="$month_starts|$next_ms"
 
   # Single-pass awk: line 1 = chart JS data, lines 2+ = stats HTML rows
   awk_output=$(cat "$disk_csv" "$ram_csv" 2>/dev/null | awk -F, \
@@ -86,8 +86,9 @@ if [[ "$enable_temp" == "yes" ]]; then
     sep = ""
   }
   {
-    epoch = $1 + 0; temp = $2 + 0
-    if (epoch == 0) next
+    epoch = $1 + 0
+    if (epoch == 0 || $2 == "") next
+    temp = $2 + 0
 
     # Chart: 15-min buckets for last 7 days
     if (epoch >= cutoff + 0) {
@@ -142,6 +143,42 @@ if [[ "$enable_temp" == "yes" ]]; then
   stats_rows=$(echo "$awk_output" | tail -n +2)
 fi
 
+# Process heater runtime stats from column 3 of temp CSV
+runtime_rows=$(cat /var/lib/heater-temp.csv /run/heater-temp.csv 2>/dev/null | awk -F, \
+  -v now="$now" \
+  -v m_starts="$month_starts" \
+  -v m_labels="$month_labels" \
+'BEGIN {
+  nm = split(m_starts, starts, "|")
+  split(m_labels, labels, "|")
+}
+{
+  epoch = $1 + 0; st = $3 + 0
+  if (epoch == 0 || $3 == "") next
+
+  # On each row where heater is on, count 60s (one cron interval)
+  if (st == 1) {
+    for (i = 1; i < nm; i++) {
+      if (epoch >= starts[i] + 0 && epoch < starts[i+1] + 0) {
+        secs[i] += 60
+        break
+      }
+    }
+  }
+}
+END {
+  for (i = 1; i < nm; i++) {
+    if (secs[i] + 0 == 0) continue
+    hours = secs[i] / 3600
+    if (i == nm - 1)
+      days = (now + 0 - starts[i] + 0) / 86400
+    else
+      days = (starts[i+1] + 0 - starts[i] + 0) / 86400
+    avg = (days > 0) ? hours / days : 0
+    printf "<tr><td>%s</td><td>%.1f</td><td>%.1f</td></tr>\n", labels[i], hours, avg
+  }
+}')
+
 # === HTML Output ===
 echo -e "Content-type: text/html\r\n\r\n"
 
@@ -182,6 +219,25 @@ cat << EOF
 </div>
 </div>
 EOF
+
+if [[ -n "$runtime_rows" ]]; then
+cat << EOF
+
+<div class="card mb-3">
+<div class="card-header"><h5 class="mb-0">Heater Runtime</h5></div>
+<div class="card-body">
+<div class="table-responsive">
+<table class="table table-sm table-striped mb-0">
+<thead><tr><th>Month</th><th>Total Hours</th><th>Avg Hours/Day</th></tr></thead>
+<tbody>
+$runtime_rows
+</tbody>
+</table>
+</div>
+</div>
+</div>
+EOF
+fi
 
 if [[ "$enable_temp" == "yes" ]]; then
 cat << EOF

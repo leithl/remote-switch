@@ -314,7 +314,14 @@ if [[ "$enable_temp" == "yes" ]]; then
       if (need_chart + 0 == 1 && epoch >= cutoff + 0 && epoch < chart_end + 0) {
         ab = int(epoch / 900) * 900
         if (ab != prev_ab && prev_ab != "") {
-          af = (absum / abcnt) * 1.8 + 32
+          af_raw = (absum / abcnt) * 1.8 + 32
+          ar0 = ar1; ar1 = ar2; ar2 = ar3; ar3 = af_raw
+          if (aroll_n < 4) aroll_n++
+          arsum = ar3
+          if (aroll_n >= 2) arsum += ar2
+          if (aroll_n >= 3) arsum += ar1
+          if (aroll_n >= 4) arsum += ar0
+          af = arsum / aroll_n
           ambient = ambient asep sprintf("{x:%d000,y:%.1f}", prev_ab, af)
           asep = ","
         }
@@ -386,7 +393,14 @@ if [[ "$enable_temp" == "yes" ]]; then
 
     # Flush last ambient bucket
     if (need_chart + 0 == 1 && abcnt > 0) {
-      af = (absum / abcnt) * 1.8 + 32
+      af_raw = (absum / abcnt) * 1.8 + 32
+      ar0 = ar1; ar1 = ar2; ar2 = ar3; ar3 = af_raw
+      if (aroll_n < 4) aroll_n++
+      arsum = ar3
+      if (aroll_n >= 2) arsum += ar2
+      if (aroll_n >= 3) arsum += ar1
+      if (aroll_n >= 4) arsum += ar0
+      af = arsum / aroll_n
       ambient = ambient asep sprintf("{x:%d000,y:%.1f}", prev_ab, af)
     }
     printf "ambient|%s\n", ambient

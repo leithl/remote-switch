@@ -50,11 +50,13 @@ Links provided for your convenience, but buy from whereever you prefer
 
 5. (optional) I installed `openvpn` to connect to an existing private network
 
-6. Edit `switch.sh` to have the correct `$gpio_pin` value for the GPIO pin you used for the switch control
-   - copy `switch.sh` and `log_temp.sh` to your cgi-bin
+6. Edit `switch.sh` configuration variables at the top of the file:
+   - `gpio_pin` — the GPIO pin number for your relay (default `17`)
+   - `enable_temp` — set to `"yes"` to enable temperature probe and charting features, or `"no"` for switch-only mode
+   - Copy `switch.sh` to your cgi-bin (and `log_temp.sh` if using temperature features)
    - `chmod 0755 switch.sh log_temp.sh`
 
-7. (optional) Set up temperature logging for the chart and monthly stats:
+7. (optional, requires `enable_temp="yes"`) Set up temperature logging for the chart and monthly stats:
    - `log_temp.sh` writes to `/run/heater-temp.csv` (RAM) to avoid SD card wear
    - Data is flushed to `/var/lib/heater-temp.csv` (disk) weekly
    - Add these cron entries (`crontab -e`):

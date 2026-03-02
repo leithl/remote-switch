@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Airplane Hanger Heater Control</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#212529">
+<link rel="manifest" href="switch.py?manifest=1">
+<link rel="icon" href="switch.py?icon=192" type="image/svg+xml">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
+{% if enable_temp %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
+{% endif %}
+</head>
+<body>
+<div class="container mt-3">
+
+<div class="card mb-3">
+<div class="card-header {{ header_class }}">
+  <h4>Airplane Hanger Heater Control</h4>
+</div>
+<div class="card-body">
+<h5 class="card-title">Heater Status: <b>{{ status }}</b></h5>
+<form action="switch.py" method="GET">
+<p>{{ toggle_btn }}</p>
+</form>
+</div>
+<div class="card-footer text-body-secondary">
+  {{ now_str }}
+</div>
+</div>
+
+{% if runtime_rows %}
+<div class="card mb-3">
+<div class="card-header"><h5 class="mb-0">Heater Runtime</h5></div>
+<div class="card-body">
+<div class="table-responsive">
+<table class="table table-sm table-striped mb-0">
+<thead><tr><th>Month</th><th>Total Hours</th><th>Avg Hours/Day</th></tr></thead>
+<tbody>
+{% for row in runtime_rows %}{{ row }}{% endfor %}
+</tbody>
+</table>
+</div>
+</div>
+</div>
+{% endif %}
+
+{% if enable_temp %}
+<div class="card mb-3">
+<div class="card-header"><h5 class="mb-0">{{ chart_title }}</h5></div>
+<div class="card-body">
+  <p class="mb-2"><strong>Current:</strong> {{ temp_display }}</p>
+  <div class="mb-2">
+    <a href="switch.py?range=7d" class="btn btn-sm {{ 'btn-primary' if range == '7d' else 'btn-outline-primary' }}">7 Days</a>
+    <a href="switch.py?range=30d" class="btn btn-sm {{ 'btn-primary' if range == '30d' else 'btn-outline-primary' }}">30 Days</a>
+    <span class="ms-3 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(220,53,69,0.3);vertical-align:middle"></span> Heater on</span>
+    <span class="ms-2 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(255,152,0,0.3);vertical-align:middle"></span> &le; 48&deg;F</span>
+    <span class="ms-2 small text-muted"><span style="display:inline-block;width:20px;border-top:2px solid rgb(34,197,94);vertical-align:middle"></span> {{ ambient_label }}</span>
+  </div>
+  <canvas id="tempChart"></canvas>
+  <button id="resetZoom" style="display:none" class="btn btn-sm btn-outline-secondary mt-2" onclick="tempChart.resetZoom()">Reset zoom</button>
+  <p id="noChartData" style="display:none" class="text-muted mb-0">No temperature history yet. Data will appear after the logging cron job runs.</p>
+</div>
+</div>
+
+<div class="card mb-3">
+<div class="card-header"><h5 class="mb-0">Monthly Statistics</h5></div>
+<div class="card-body">
+<div class="table-responsive">
+<table class="table table-sm table-striped table-hover mb-0">
+<thead><tr><th>Month</th><th>Avg (&deg;F / &deg;C)</th><th>Min (&deg;F / &deg;C)</th><th>Max (&deg;F / &deg;C)</th><th>Hours &le; 48&deg;F</th></tr></thead>
+<tbody>
+{% for row in combined_stats_rows %}{{ row }}{% endfor %}
+</tbody>
+</table>
+</div>
+</div>
+</div>
+{% endif %}
+
+<div class="card mb-3">
+<div class="card-header"><h5 class="mb-0">Schedule</h5></div>
+<div class="card-body">
+{{ sched_msg }}
+<form action="switch.py" method="GET" class="row g-2 align-items-end">
+  <div class="col-auto">
+    <label for="sched_dt" class="form-label mb-0 small">Date &amp; Time</label>
+    <input type="datetime-local" id="sched_dt" name="sched_dt" class="form-control form-control-sm" required min="{{ now_dt_min }}">
+  </div>
+  <div class="col-auto">
+    <label for="sched_action" class="form-label mb-0 small">Action</label>
+    <select id="sched_action" name="sched_action" class="form-select form-select-sm">
+      <option value="1">Turn ON</option>
+      <option value="0">Turn OFF</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <button type="submit" class="btn btn-primary btn-sm">Schedule</button>
+  </div>
+</form>
+{% if pending_sched_rows %}
+<hr>
+<h6>Pending</h6>
+<div class="table-responsive">
+<table class="table table-sm table-striped mb-0">
+<thead><tr><th>Time</th><th>Action</th><th></th></tr></thead>
+<tbody>
+{% for row in pending_sched_rows %}{{ row }}{% endfor %}
+</tbody>
+</table>
+</div>
+{% endif %}
+</div>
+</div>
+
+</div>
+{% if enable_temp %}
+<script>
+var data = {{ chart_data | tojson }};
+var heaterRanges = {{ heater_ranges | tojson }};
+var coldRanges = {{ cold_ranges | tojson }};
+var ambientData = {{ ambient_data | tojson }};
+var heaterData = data.map(function(d) {
+  var bucketEnd = d.x + 900000;
+  for (var j = 0; j < heaterRanges.length; j++) {
+    if (d.x < heaterRanges[j].xMax && bucketEnd > heaterRanges[j].xMin) return {x: d.x, y: d.y};
+  }
+  return {x: d.x, y: null};
+});
+for (var i = 0; i < heaterData.length; i++) {
+  if (heaterData[i].y !== null) {
+    var hasPrev = i > 0 && heaterData[i-1].y !== null;
+    var hasNext = i < heaterData.length - 1 && heaterData[i+1].y !== null;
+    if (!hasPrev && !hasNext) {
+      if (i < heaterData.length - 1) heaterData[i+1] = {x: data[i+1].x, y: data[i+1].y};
+      else if (i > 0) heaterData[i-1] = {x: data[i-1].x, y: data[i-1].y};
+    }
+  }
+}
+var annotations = {};
+coldRanges.forEach(function(r, i) {
+  annotations['c' + i] = {
+    type: 'box',
+    xMin: r.xMin,
+    xMax: r.xMax,
+    backgroundColor: 'rgba(255, 152, 0, 0.15)',
+    borderWidth: 0
+  };
+});
+if (data.length > 0) {
+  var tempsF = data.map(function(d) { return d.y; });
+  ambientData.forEach(function(d) { if (d.y !== null && d.y !== undefined) tempsF.push(d.y); });
+  var minF = Math.min.apply(null, tempsF);
+  var maxF = Math.max.apply(null, tempsF);
+  var padF = Math.max((maxF - minF) * 0.1, 1);
+  minF = Math.floor(minF - padF);
+  maxF = Math.ceil(maxF + padF);
+  var minC = Math.floor((minF - 32) / 1.8);
+  var maxC = Math.ceil((maxF - 32) / 1.8);
+  var tempChart = new Chart(document.getElementById('tempChart'), {
+    type: 'line',
+    data: {
+      datasets: [{
+        data: data,
+        borderColor: 'rgb(75, 192, 192)',
+        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+        fill: true,
+        pointRadius: 0,
+        tension: 0.3
+      }, {
+        data: heaterData,
+        borderColor: 'transparent',
+        backgroundColor: 'rgba(220, 53, 69, 0.25)',
+        fill: 'origin',
+        pointRadius: 0,
+        tension: 0.3,
+        spanGaps: false
+      }, {
+        data: ambientData,
+        borderColor: 'rgb(34, 197, 94)',
+        backgroundColor: 'transparent',
+        fill: false,
+        pointRadius: 0,
+        tension: 0.4,
+        cubicInterpolationMode: 'monotone',
+        spanGaps: true
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        annotation: { drawTime: 'beforeDatasetsDraw', annotations: annotations },
+        zoom: {
+          zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
+          pan: { enabled: true, mode: 'x' }
+        }
+      },
+      scales: {
+        x: {
+          type: 'time',
+          time: { unit: 'day', displayFormats: { day: 'MMM d' } }
+        },
+        y: {
+          position: 'left',
+          min: minF, max: maxF,
+          title: { display: true, text: '\u00B0F' }
+        },
+        y1: {
+          position: 'right',
+          min: minC, max: maxC,
+          grid: { drawOnChartArea: false },
+          title: { display: true, text: '\u00B0C' }
+        }
+      }
+    }
+  });
+  document.getElementById('resetZoom').style.display = '';
+} else {
+  document.getElementById('tempChart').style.display = 'none';
+  document.getElementById('noChartData').style.display = 'block';
+}
+</script>
+{% endif %}
+</body>
+</html>

@@ -1,98 +1,247 @@
 # remote-switch
-Raspberry pi connected to a mobile/cell network to turn on/off an AC-powered device.
+Raspberry Pi connected to a mobile/cell network to turn on/off an AC-powered device.
 
-I use it in an airplane hangar to turn on an airplane oil pan heater, but it would work anywhere there is reception and power to turn on/off any device
+I use it in an airplane hangar to turn on an airplane oil pan heater, but it would work anywhere there is reception and power to turn on/off any device.
 
 ## Equipment
 
-Links provided for your convenience, but buy from whereever you prefer
+Links provided for your convenience, but buy from wherever you prefer.
 
-* [Raspberry pi zero w](https://www.raspberrypi.com/products/raspberry-pi-zero-w/)
-  * You'll need a microSD card if you don't have one. 4GB+ will be enough.
-* [SIM7600 LTE modem HAT for pi](https://www.waveshare.com/sim7600a-h-4g-hat.htm) also available on [amazon](https://www.amazon.com/SIM7600A-H-4G-HAT-Communication-Positioning/dp/B082WH85WV/)
-  * You'll need a sim card, the docs say it takes a nano but the unit I had a mini sim slot. I used a Google fi sim since it only costs data on my current existing plan
-  * You could skip this if you have reliable wifi already in place
+* [Raspberry Pi Zero W](https://www.raspberrypi.com/products/raspberry-pi-zero-w/)
+  * You'll need a microSD card if you don't have one. 4GB+ is enough.
+* [SIM7600 LTE modem HAT for Pi](https://www.waveshare.com/sim7600a-h-4g-hat.htm) also available on [Amazon](https://www.amazon.com/SIM7600A-H-4G-HAT-Communication-Positioning/dp/B082WH85WV/)
+  * You'll need a SIM card. The docs say nano but the unit I had uses a mini SIM slot. I used a Google Fi SIM since it only costs data on my existing plan.
+  * Skip this if you already have reliable WiFi.
 * [Digital Loggers IoT relay](https://dlidirect.com/products/iot-power-relay)
-  * Connect the `-` to GND on the pi, and the `+` to an unused GPIO pin
-* (optional) [DS18B20 temperature probe](https://www.adafruit.com/product/381) — displays ambient temperature on the control page
-  * You'll also need a 4.7k ohm resistor between the data and power lines
+  * Connect `-` to GND on the Pi, and `+` to an unused GPIO pin.
+* (optional) [DS18B20 temperature probe](https://www.adafruit.com/product/381) — displays temperature on the control page
+  * You'll also need a 4.7kΩ resistor between the data and power lines.
 
-## Configuration
+## Setup
 
-1. Get your pi set up, I used [raspbian lite](https://www.raspberrypi.com/software/operating-systems/) and there are many guides out there on the basics, here are the specifics for this project:
-   - Pick a GPIO pin that is unused by the LTE hat, I used `17`. You'll need to update the below to yours if different
-   - Add the below to `/boot/config.txt`:
+### 1. Raspberry Pi OS
 
-      ```
-      # https://forums.raspberrypi.com/viewtopic.php?f=117&t=208748
-      # set gpio pin 17 as output and set to low
-      gpio=17=op,dl
+Install [Raspberry Pi OS Lite](https://www.raspberrypi.com/software/operating-systems/) and configure the following.
 
-      # (optional) enable 1-wire for DS18B20 temp probe
-      dtoverlay=w1-gpio
-      ```
-   - Add to /etc/rc.local:
-   
-      ```
-      echo "17" > /sys/class/gpio/export
-      ```
+Add to `/boot/config.txt`:
 
-2. Get your LTE modem running, the [manufacturers documentation](https://www.waveshare.com/wiki/SIM7600A-H_4G_HAT) is detailed but not always clear, I used a bit of trial and error with things like APN. 
+```
+# https://forums.raspberrypi.com/viewtopic.php?f=117&t=208748
+# set GPIO pin 17 as output, default low
+gpio=17=op,dl
 
-3. Install a webserver, I used `apache`
-   - Add apache user `www-data` to the gpio group to read/write data  
-    
-      ```
-      sudo usermod -a -G gpio www-data
-      ```
+# (optional) enable 1-wire for DS18B20 temp probe
+dtoverlay=w1-gpio
+```
 
-4. Install a firewall, I used `ufw` and closed all ports except `ssh` and `http` 
+Add to `/etc/rc.local` (before `exit 0`):
 
-5. (optional) I installed `openvpn` to connect to an existing private network
+```
+echo "17" > /sys/class/gpio/export
+```
 
-6. Edit configuration variables:
-   - In `switch.sh`: `gpio_pin` (default `17`), `enable_temp` (`"yes"` for temperature features, `"no"` for switch-only)
-   - In `log_temp.sh`: `gpio_pin` (must match `switch.sh`), `notify_email` (optional — set to an email address to receive monthly summaries via `msmtp`)
-   - Copy `switch.sh` and `log_temp.sh` to your cgi-bin
-   - `chmod 0755 switch.sh log_temp.sh`
+### 2. LTE Modem
 
-7. (optional) Set up data logging for heater runtime tracking (and temperature charts if `enable_temp="yes"`):
-   - `log_temp.sh` records heater state every minute, and temperature if a probe is connected, to `/run/heater-temp.csv` (RAM) to avoid SD card wear
-   - CSV format: `epoch,temp_c,heater_state,ambient_c` (temp/ambient are blank if unavailable; state is `0`/`1`)
-   - Data is flushed to `/var/lib/heater-temp.csv` (disk) weekly
-   - Add these cron entries to root's crontab (`sudo crontab -e`), since `/run` and `/var/lib` require root write access:
+Get your LTE modem running. The [manufacturer's documentation](https://www.waveshare.com/wiki/SIM7600A-H_4G_HAT) is detailed but may require some trial and error with APN settings.
 
-      ```
-      * * * * * /usr/lib/cgi-bin/remote-switch/log_temp.sh
-      0 0 * * 0 /usr/lib/cgi-bin/remote-switch/log_temp.sh flush
-      0 0 1 * * /usr/lib/cgi-bin/remote-switch/log_temp.sh rollup
-      ```
+### 3. Web Server (Apache)
 
-   - Adjust the paths above to match your cgi-bin location
-   - Data lost on reboot is limited to ~1 week (since the last flush)
-   - The `rollup` job runs on the 1st of each month, pre-computing the previous month's chart data and stats into `/var/lib/heater-chart/YYYY-MM.dat` so past months load instantly without re-processing raw CSV data
-   - If `notify_email` is set in `log_temp.sh` and `msmtp` is installed/configured, the rollup job also sends a monthly summary email with temperature and runtime stats
-  
-8. (optional) Scheduling: the web UI includes a scheduler to turn the heater on or off at a future date/time. The `log_temp.sh` cron job (step 7) checks for due schedules every minute and executes them — no additional cron entries needed. Schedules are stored in `/run/heater-schedule.csv` (RAM) and do not survive reboot. After initial setup, run `sudo log_temp.sh` once to create the schedule file, or wait for the cron job to do it within a minute.
+Install Apache and add `www-data` to the `gpio` group so the web UI can toggle the relay:
 
-9. (optional) Ambient temperature: the chart can display outdoor ambient temperature as a second line, fetched from [Open-Meteo](https://open-meteo.com/) (free, no API key required). Requires `enable_temp="yes"` in `switch.sh` and `curl` (standard on Raspberry Pi OS).
-   - Copy `.env.example` to `.env` in the same directory as the scripts (e.g. `/usr/lib/cgi-bin/remote-switch/.env`) and edit it
-   - **Option A — airport ICAO code** (recommended for hangar use):
-     ```
-     LOCATION=KLMO
-     ```
-     On the first cron run, the airport is geocoded to lat/lon via the [OurAirports](https://ourairports.com/) public dataset, and `LATITUDE=` / `LONGITUDE=` are automatically appended to `.env`. Geocoding is skipped on all subsequent runs. To re-geocode, remove those two lines from `.env`.
-   - **Option B — direct coordinates**:
-     ```
-     LATITUDE=45.5051
-     LONGITUDE=-122.6750
-     ```
-   - The ambient temp is fetched every 15 minutes (cached in RAM between fetches) to minimise LTE data usage — ~96 API calls/day
-   - The chart legend label shows the airport code (if `LOCATION` is set) or the coordinates (if set directly)
-   - If `.env` is absent or the fetch fails, the chart continues to work normally — ambient data simply won't appear
+```bash
+sudo apt install apache2
+sudo usermod -a -G gpio www-data
+```
 
- It should look something like this:
+Enable CGI in Apache if not already active:
+
+```bash
+sudo a2enmod cgi
+sudo systemctl restart apache2
+```
+
+### 4. Python Dependency
+
+Install Jinja2 (the only non-stdlib dependency):
+
+```bash
+sudo apt install python3-jinja2
+```
+
+### 5. Deploy Files
+
+Copy the project files to your cgi-bin directory (e.g. `/usr/lib/cgi-bin/remote-switch/`):
+
+```bash
+sudo mkdir -p /usr/lib/cgi-bin/remote-switch/templates
+sudo cp aggregate.py config.py log_temp.py switch.py /usr/lib/cgi-bin/remote-switch/
+sudo cp templates/index.html /usr/lib/cgi-bin/remote-switch/templates/
+sudo chmod 0755 /usr/lib/cgi-bin/remote-switch/switch.py
+sudo chmod 0755 /usr/lib/cgi-bin/remote-switch/log_temp.py
+```
+
+### 6. Configuration
+
+Edit `/usr/lib/cgi-bin/remote-switch/config.py` for hardware settings:
+
+```python
+GPIO_PIN    = "17"    # GPIO pin connected to your relay
+ENABLE_TEMP = True    # set to False to disable all temperature features
+```
+
+### 7. Disk Storage Permissions
+
+The logger writes to SQLite on disk at `/var/lib/heater/heater.db`. The directory needs to be writable by both root (cron) and `www-data` (Apache):
+
+```bash
+sudo mkdir -p /var/lib/heater
+sudo chown root:www-data /var/lib/heater
+sudo chmod 775 /var/lib/heater
+```
+
+The database file itself is created automatically on the first cron run. After that:
+
+```bash
+sudo chown root:www-data /var/lib/heater/heater.db
+sudo chmod 664 /var/lib/heater/heater.db
+```
+
+### 8. Cron Jobs
+
+Add these entries to root's crontab (`sudo crontab -e`):
+
+```
+* * * * * /usr/lib/cgi-bin/remote-switch/log_temp.py
+0 0 * * 0 /usr/lib/cgi-bin/remote-switch/log_temp.py flush
+0 0 1 * * /usr/lib/cgi-bin/remote-switch/log_temp.py rollup
+```
+
+What each job does:
+- **Every minute** — reads heater state, temperature (if probe connected), and ambient temperature (if configured); executes any due schedules; writes one row to `/run/heater.db` (RAM, tmpfs — no SD card write)
+- **Weekly (Sunday midnight)** — flushes RAM database to `/var/lib/heater/heater.db` on disk
+- **Monthly (1st midnight)** — pre-computes the previous month's chart data and stats into the `monthly_cache` table so past months load instantly; optionally emails a summary
+
+Data lost on reboot is limited to at most ~1 week (since the last flush). This matches the previous CSV-based behaviour.
+
+### 9. Firewall
+
+Install and configure a firewall:
+
+```bash
+sudo apt install ufw
+sudo ufw allow ssh
+sudo ufw allow http
+sudo ufw enable
+```
+
+### 10. (optional) VPN
+
+Install OpenVPN or WireGuard to connect to an existing private network.
+
+---
+
+## Optional: Ambient Temperature
+
+The chart can display outdoor ambient temperature as a second line, fetched from [Open-Meteo](https://open-meteo.com/) (free, no API key). Requires `ENABLE_TEMP = True` in `config.py`.
+
+Create `.env` in the same directory as the scripts (e.g. `/usr/lib/cgi-bin/remote-switch/.env`):
+
+**Option A — airport ICAO code** (recommended for hangar use):
+
+```
+LOCATION=KLMO
+```
+
+On the first cron run, the airport is geocoded to lat/lon via the [OurAirports](https://ourairports.com/) public dataset, and `LATITUDE=` / `LONGITUDE=` are automatically appended to `.env`. Geocoding is skipped on all subsequent runs.
+
+**Option B — direct coordinates**:
+
+```
+LATITUDE=45.5051
+LONGITUDE=-122.6750
+```
+
+The ambient temp is fetched every 15 minutes (cached in RAM between fetches) to minimise LTE data usage — ~96 API calls/day. If `.env` is absent or the fetch fails, the chart continues to work normally without the ambient line.
+
+---
+
+## Optional: Monthly Email Summaries
+
+Add to `.env`:
+
+```
+NOTIFY_EMAIL=you@example.com
+```
+
+Requires [`msmtp`](https://marlam.de/msmtp/) to be installed and configured. The monthly rollup cron job sends a summary with temperature stats and heater runtime.
+
+---
+
+## Scheduling
+
+The web UI includes a one-shot scheduler to turn the heater on or off at a future date and time. Schedules are stored in the database and executed by the every-minute cron job — no additional setup needed. Schedules survive reboots.
+
+---
+
+## Storage Architecture
+
+To minimise SD card writes on the Raspberry Pi, all per-minute data is written to a SQLite database in RAM (`/run/heater.db`, on tmpfs), not to the SD card. This file is flushed to disk weekly. The web UI reads from both the RAM and disk databases via SQLite's `ATTACH` so no data is ever lost between flushes.
+
+```
+/run/heater.db                  ← RAM (tmpfs). Volatile. Written every minute.
+/var/lib/heater/heater.db       ← Disk (SD card). Written weekly (flush) + monthly (rollup).
+/run/heater-ambient.tmp         ← Ambient temp cache (15-min TTL, ~50 bytes).
+```
+
+---
+
+## Updating an Existing Install
+
+**Do not `git pull` to update** — the pull will delete the bash scripts before you've verified the Python version works. Instead, copy the Python files manually first, test, then pull when ready.
+
+```bash
+# 1. Install the Python dependency
+sudo apt install python3-jinja2
 
 
- <img width="367" height="338" alt="image" src="https://github.com/user-attachments/assets/cf57c170-1fed-49d0-ad67-8e05793cb1e2" />
+# 2. Create the disk DB directory (if not already done)
+sudo mkdir -p /var/lib/heater
+sudo chown root:www-data /var/lib/heater
+sudo chmod 775 /var/lib/heater
 
+# 3. Copy the new Python files alongside the existing bash scripts
+sudo cp aggregate.py config.py log_temp.py switch.py /usr/lib/cgi-bin/remote-switch/
+sudo mkdir -p /usr/lib/cgi-bin/remote-switch/templates
+sudo cp templates/index.html /usr/lib/cgi-bin/remote-switch/templates/
+sudo chmod 0755 /usr/lib/cgi-bin/remote-switch/switch.py
+sudo chmod 0755 /usr/lib/cgi-bin/remote-switch/log_temp.py
+
+# 4. Import your existing CSV history into SQLite
+#    (copy migrate.py to the Pi — it is not part of the main repo)
+python3 /usr/lib/cgi-bin/remote-switch/migrate.py
+
+# 5. Fix database permissions (created by root in step 4)
+sudo chown root:www-data /var/lib/heater/heater.db
+sudo chmod 664 /var/lib/heater/heater.db
+
+# 6. Open switch.py in a browser to verify: chart, stats, and controls all work
+#    e.g. http://<pi-ip>/cgi-bin/remote-switch/switch.py
+
+# 7. When satisfied, update the crontab (sudo crontab -e):
+#    Replace:  * * * * * .../log_temp.sh
+#    With:     * * * * * .../log_temp.py
+#    (and the flush/rollup lines likewise)
+
+# 8. Pull to clean up the old shell scripts from the repo checkout
+git pull
+
+# 9. Remove old CSV/chart files (now imported into SQLite)
+rm -f /var/lib/heater-temp.csv
+rm -rf /var/lib/heater-chart/
+```
+
+---
+
+## Screenshot
+
+<img width="367" height="338" alt="image" src="https://github.com/user-attachments/assets/cf57c170-1fed-49d0-ad67-8e05793cb1e2" />

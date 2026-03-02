@@ -1,7 +1,7 @@
 # remote-switch
 Raspberry pi connected to a mobile/cell network to turn on/off an AC-powered device.
 
-I use it in an airplane hanger to turn on an airplane oil pan heater, but it would work anywhere there is reception and power to turn on/off any device
+I use it in an airplane hangar to turn on an airplane oil pan heater, but it would work anywhere there is reception and power to turn on/off any device
 
 ## Equipment
 

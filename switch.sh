@@ -19,8 +19,30 @@ for p in "${params[@]}"; do
     sched_action="$val"
   elif [[ "$key" == "cancel_id" ]]; then
     cancel_id="$val"
+  elif [[ "$key" == "manifest" ]]; then
+    manifest="$val"
+  elif [[ "$key" == "icon" ]]; then
+    icon="$val"
   fi
 done
+
+# Serve web app manifest (for Android home screen install)
+if [[ "$manifest" == "1" ]]; then
+  echo -e "Content-type: application/manifest+json\r\n\r"
+  cat << 'MANIFEST'
+{"name":"Heater Control","short_name":"Heater","start_url":"switch.sh","display":"standalone","background_color":"#212529","theme_color":"#212529","icons":[{"src":"switch.sh?icon=192","sizes":"any","type":"image/svg+xml"}]}
+MANIFEST
+  exit 0
+fi
+
+# Serve home screen icon
+if [[ "$icon" == "192" || "$icon" == "512" ]]; then
+  echo -e "Content-type: image/svg+xml\r\n\r"
+  cat << 'ICON'
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="80" fill="#212529"/><path d="M256 60c-50 0-90 70-90 150 0 60 30 110 60 130v32c0 17 13 30 30 30s30-13 30-30v-32c30-20 60-70 60-130 0-80-40-150-90-150zm0 60c25 0 50 45 50 90 0 35-15 65-35 80h-30c-20-15-35-45-35-80 0-45 25-90 50-90z" fill="#ff6420"/><path d="M256 140c-15 0-30 30-30 60 0 25 10 45 20 55h20c10-10 20-30 20-55 0-30-15-60-30-60z" fill="#ffc832"/></svg>
+ICON
+  exit 0
+fi
 
 # Specify the GPIO file path
 gpio_file="/sys/class/gpio/gpio$gpio_pin"
@@ -404,7 +426,10 @@ cat << EOF
 <head>
 <title>Airplane Hanger Heater Control</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="data:,">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#212529">
+<link rel="manifest" href="switch.sh?manifest=1">
+<link rel="icon" href="switch.sh?icon=192" type="image/svg+xml">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
 EOF

@@ -7,6 +7,7 @@ notify_email=""  # set to an email address for monthly summary emails (requires 
 ram_csv="/run/heater-temp.csv"
 disk_csv="/var/lib/heater-temp.csv"
 chart_dir="/var/lib/heater-chart"
+sched_csv="/run/heater-schedule.csv"
 
 # Flush mode: persist RAM data to disk and clear RAM
 if [[ "$1" == "flush" ]]; then
@@ -174,6 +175,39 @@ fi
 gpio_value="/sys/class/gpio/gpio$gpio_pin/value"
 heater_state=0
 [[ -f "$gpio_value" ]] && heater_state=$(< "$gpio_value")
+
+# Ensure schedule file exists with correct permissions
+if [[ ! -f "$sched_csv" ]]; then
+  touch "$sched_csv"
+  chown www-data:gpio "$sched_csv" 2>/dev/null
+  chmod 0664 "$sched_csv"
+fi
+
+# Execute due schedules
+if [[ -s "$sched_csv" ]]; then
+  now_epoch=$(date +%s)
+  sched_tmp="${sched_csv}.tmp"
+  (
+    flock -x 200
+    while IFS=, read -r sid sepoch saction; do
+      [[ -z "$sid" || -z "$sepoch" || -z "$saction" ]] && continue
+      if (( sepoch <= now_epoch )); then
+        if [[ "$saction" == "0" || "$saction" == "1" ]] && [[ -f "$gpio_value" ]]; then
+          echo "$saction" > "$gpio_value"
+          heater_state="$saction"
+        fi
+      else
+        echo "$sid,$sepoch,$saction" >> "$sched_tmp"
+      fi
+    done < "$sched_csv"
+    if [[ -f "$sched_tmp" ]]; then
+      cat "$sched_tmp" > "$sched_csv"
+      rm -f "$sched_tmp"
+    else
+      : > "$sched_csv"
+    fi
+  ) 200>"${sched_csv}.lock"
+fi
 
 # Read temperature from DS18B20 1-wire probe (optional)
 temp_c=""

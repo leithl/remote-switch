@@ -468,7 +468,7 @@ for mk in "${mk_arr[@]}"; do
     row=$(grep '^ambient_stat|' "$dat" | cut -d'|' -f2-)
     if [[ -n "$row" ]]; then
       row="${row/<tr>/<tr onclick=\"location=\'switch.sh?range=$mk\'\" style=\"cursor:pointer\">}"
-      row=$(printf '%s' "$row" | sed 's|<td>[^<]*</td>|<td class="ps-3 text-muted small">Outdoor</td>|; s|</tr>|<td class="text-muted">—</td></tr>|')
+      row=$(printf '%s' "$row" | sed 's|<td>[^<]*</td>|<td class="ps-3 text-muted small">Outdoor</td>|; s|</tr>|<td class="text-muted">\&mdash;</td></tr>|')
       combined_stats_rows="${combined_stats_rows}${row}
 "
     fi
@@ -478,7 +478,7 @@ for mk in "${mk_arr[@]}"; do
 "
     row=$(echo "$awk_output" 2>/dev/null | grep "^ambient_stat:$mk|" | sed 's/^ambient_stat:[^|]*|//')
     if [[ -n "$row" ]]; then
-      row=$(printf '%s' "$row" | sed 's|<td>[^<]*</td>|<td class="ps-3 text-muted small">Outdoor</td>|; s|</tr>|<td class="text-muted">—</td></tr>|')
+      row=$(printf '%s' "$row" | sed 's|<td>[^<]*</td>|<td class="ps-3 text-muted small">Outdoor</td>|; s|</tr>|<td class="text-muted">\&mdash;</td></tr>|')
       combined_stats_rows="${combined_stats_rows}${row}
 "
     fi

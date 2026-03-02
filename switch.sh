@@ -178,13 +178,6 @@ cat << EOF
 </form>
 </div>
 <div class="card-footer text-body-secondary">
-EOF
-
-if [[ "$enable_temp" == "yes" ]]; then
-  echo "  Current temp: $temp_display<br>"
-fi
-
-cat << EOF
   $(date)
 </div>
 </div>
@@ -196,6 +189,7 @@ cat << EOF
 <div class="card mb-3">
 <div class="card-header"><h5 class="mb-0">Temperature - Last 7 Days</h5></div>
 <div class="card-body">
+  <p class="mb-2"><strong>Current:</strong> $temp_display</p>
   <canvas id="tempChart"></canvas>
   <p id="noChartData" style="display:none" class="text-muted mb-0">No temperature history yet. Data will appear after the logging cron job runs.</p>
 </div>

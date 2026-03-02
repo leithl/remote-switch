@@ -14,8 +14,10 @@ Links provided for your convenience, but buy from whereever you prefer
   * You could skip this if you have reliable wifi already in place
 * [Digital Loggers IoT relay](https://dlidirect.com/products/iot-power-relay)
   * Connect the `-` to GND on the pi, and the `+` to an unused GPIO pin
+* (optional) [DS18B20 temperature probe](https://www.adafruit.com/product/381) — displays ambient temperature on the control page
+  * You'll also need a 4.7k ohm resistor between the data and power lines
 
-## Configuatiuon
+## Configuration
 
 1. Get your pi set up, I used [raspbian lite](https://www.raspberrypi.com/software/operating-systems/) and there are many guides out there on the basics, here are the specifics for this project:
    - Pick a GPIO pin that is unused by the LTE hat, I used `17`. You'll need to update the below to yours if different
@@ -25,6 +27,9 @@ Links provided for your convenience, but buy from whereever you prefer
       # https://forums.raspberrypi.com/viewtopic.php?f=117&t=208748
       # set gpio pin 17 as output and set to low
       gpio=17=op,dl
+
+      # (optional) enable 1-wire for DS18B20 temp probe
+      dtoverlay=w1-gpio
       ```
    - Add to /etc/rc.local:
    

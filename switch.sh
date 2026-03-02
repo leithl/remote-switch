@@ -11,6 +11,8 @@ for p in "${params[@]}"; do
   IFS='=' read -r key val <<< "$p"
   if [[ "$key" == "state" ]]; then
     state="$val"
+  elif [[ "$key" == "range" ]]; then
+    range="$val"
   fi
 done
 
@@ -44,19 +46,92 @@ else
   toggle_btn='<button type="submit" name="state" class="btn btn-danger btn-lg" value="0">turn off</button>'
 fi
 
-# Shared time variables for stats processing
+# Shared time variables
 now=$(date +%s)
-month_starts=""
-month_labels=""
+ram_csv="/run/heater-temp.csv"
+disk_csv="/var/lib/heater-temp.csv"
+chart_dir="/var/lib/heater-chart"
 cms=$(date +%Y-%m-01)
+cur_month=$(date +%Y-%m)
+
+# Default range
+[[ -z "$range" ]] && range="7d"
+
+# Validate range: must be 7d, 30d, or YYYY-MM format
+if [[ "$range" != "7d" && "$range" != "30d" && ! "$range" =~ ^[0-9]{4}-[0-9]{2}$ ]]; then
+  range="7d"
+fi
+
+# Build month keys, labels, and starts for the last 13 months
+month_keys=""
+month_labels=""
+month_starts=""
 for i in $(seq 12 -1 0); do
-  ms=$(date -d "$cms -$i month" +%s)
+  mk=$(date -d "$cms -$i month" +%Y-%m)
   ml=$(date -d "$cms -$i month" +"%b %Y")
-  month_starts="${month_starts:+$month_starts|}$ms"
+  ms=$(date -d "$cms -$i month" +%s)
+  month_keys="${month_keys:+$month_keys|}$mk"
   month_labels="${month_labels:+$month_labels|}$ml"
+  month_starts="${month_starts:+$month_starts|}$ms"
 done
 next_ms=$(date -d "$cms +1 month" +%s)
 month_starts="$month_starts|$next_ms"
+
+# Determine chart cutoff and end based on range, and chart title
+chart_title=""
+if [[ "$range" == "30d" ]]; then
+  chart_cutoff=$((now - 30 * 86400))
+  chart_end="$now"
+  chart_title="Temperature - Last 30 Days"
+elif [[ "$range" =~ ^[0-9]{4}-[0-9]{2}$ ]]; then
+  chart_cutoff=$(date -d "${range}-01" +%s 2>/dev/null)
+  chart_end=$(date -d "${range}-01 +1 month" +%s 2>/dev/null)
+  chart_title="Temperature - $(date -d "${range}-01" +"%b %Y" 2>/dev/null)"
+  # Fall back to 7d if date parsing failed
+  if [[ -z "$chart_cutoff" || -z "$chart_end" ]]; then
+    range="7d"
+  fi
+fi
+if [[ "$range" == "7d" ]]; then
+  chart_cutoff=$((now - 7 * 86400))
+  chart_end="$now"
+  chart_title="Temperature - Last 7 Days"
+fi
+
+# Collect pre-computed stats from .dat files for past months
+pre_temp_rows=""
+pre_runtime_rows=""
+IFS='|' read -ra mk_arr <<< "$month_keys"
+for mk in "${mk_arr[@]}"; do
+  dat="$chart_dir/$mk.dat"
+  if [[ "$mk" != "$cur_month" && -f "$dat" ]]; then
+    row=$(grep '^temp|' "$dat" | cut -d'|' -f2-)
+    [[ -n "$row" ]] && pre_temp_rows="${pre_temp_rows}${row}
+"
+    row=$(grep '^runtime|' "$dat" | cut -d'|' -f2-)
+    [[ -n "$row" ]] && pre_runtime_rows="${pre_runtime_rows}${row}
+"
+  fi
+done
+
+# Build list of months that still need live computation (no .dat file)
+live_months=""
+for mk in "${mk_arr[@]}"; do
+  dat="$chart_dir/$mk.dat"
+  if [[ "$mk" == "$cur_month" || ! -f "$dat" ]]; then
+    live_months="${live_months:+$live_months|}$mk"
+  fi
+done
+
+# Check if chart data comes from a pre-computed .dat file
+chart_from_dat=""
+if [[ "$range" =~ ^[0-9]{4}-[0-9]{2}$ && "$range" != "$cur_month" ]]; then
+  dat="$chart_dir/$range.dat"
+  if [[ -f "$dat" ]]; then
+    chart_data=$(grep '^chart|' "$dat" | cut -d'|' -f2-)
+    chart_from_dat="yes"
+  fi
+fi
 
 if [[ "$enable_temp" == "yes" ]]; then
   # Read temperature from DS18B20 1-wire probe
@@ -69,20 +144,22 @@ if [[ "$enable_temp" == "yes" ]]; then
     temp_display=$(awk -F 't=' '/t=/{c=$2/1000; f=(c*1.8)+32; printf "%.1f &deg;C | %.1f &deg;F", c, f}' "$w1_device")
   fi
 
-  # Process temperature history for chart and stats
-  ram_csv="/run/heater-temp.csv"
-  disk_csv="/var/lib/heater-temp.csv"
-  seven_days_ago=$((now - 7 * 86400))
-
-  # Single-pass awk: line 1 = chart JS data, lines 2+ = stats HTML rows
+  # Compute chart data + stats for months without .dat files
   awk_output=$(cat "$disk_csv" "$ram_csv" 2>/dev/null | awk -F, \
-    -v cutoff="$seven_days_ago" \
+    -v cutoff="$chart_cutoff" \
+    -v chart_end="$chart_end" \
     -v now="$now" \
     -v m_starts="$month_starts" \
     -v m_labels="$month_labels" \
+    -v m_keys="$month_keys" \
+    -v live="$live_months" \
+    -v need_chart="$( [[ -z "$chart_from_dat" ]] && echo 1 || echo 0 )" \
   'BEGIN {
     nm = split(m_starts, starts, "|")
     split(m_labels, labels, "|")
+    split(m_keys, keys, "|")
+    nl = split(live, live_arr, "|")
+    for (j = 1; j <= nl; j++) live_set[live_arr[j]] = 1
     sep = ""
   }
   {
@@ -90,8 +167,8 @@ if [[ "$enable_temp" == "yes" ]]; then
     if (epoch == 0 || $2 == "") next
     temp = $2 + 0
 
-    # Chart: 15-min buckets for last 7 days
-    if (epoch >= cutoff + 0) {
+    # Chart: 15-min buckets within the selected range
+    if (need_chart + 0 == 1 && epoch >= cutoff + 0 && epoch < chart_end + 0) {
       b = int(epoch / 900) * 900
       if (b != prev_b && prev_b != "") {
         f = (bsum / bcnt) * 1.8 + 32
@@ -102,64 +179,71 @@ if [[ "$enable_temp" == "yes" ]]; then
       bsum += temp; bcnt++
     }
 
-    # Monthly stats
+    # Monthly stats (only for months that need live computation)
     for (i = 1; i < nm; i++) {
       if (epoch >= starts[i] + 0 && epoch < starts[i+1] + 0) {
-        msum[i] += temp; mcnt[i]++
-        if (!(i in mmin) || temp < mmin[i]) mmin[i] = temp
-        if (!(i in mmax) || temp > mmax[i]) mmax[i] = temp
+        if (keys[i] in live_set) {
+          msum[i] += temp; mcnt[i]++
+          if (!(i in mmin) || temp < mmin[i]) mmin[i] = temp
+          if (!(i in mmax) || temp > mmax[i]) mmax[i] = temp
+        }
         break
       }
     }
   }
   END {
     # Flush last chart bucket
-    if (bcnt > 0) {
+    if (need_chart + 0 == 1 && bcnt > 0) {
       f = (bsum / bcnt) * 1.8 + 32
       chart = chart sep sprintf("{x:%d000,y:%.1f}", prev_b, f)
     }
     print chart
 
-    # Stats rows (oldest first)
+    # Stats rows for live months only
     for (i = 1; i < nm; i++) {
       if (mcnt[i] + 0 == 0) continue
-
-      # Calculate data coverage: actual readings vs possible (1 per minute)
       if (i == nm - 1)
         possible = int((now + 0 - starts[i] + 0) / 60)
       else
         possible = int((starts[i+1] + 0 - starts[i] + 0) / 60)
       pct = (possible > 0) ? (mcnt[i] / possible) * 100 : 0
       lbl = (pct >= 100) ? labels[i] : sprintf("%s (%.1f%%)", labels[i], pct)
-
       avg_c = msum[i] / mcnt[i]; avg_f = avg_c * 1.8 + 32
       min_f = mmin[i] * 1.8 + 32; max_f = mmax[i] * 1.8 + 32
-      printf "<tr><td>%s</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td></tr>\n", \
-        lbl, avg_f, avg_c, min_f, mmin[i], max_f, mmax[i]
+      printf "temp:%s|<tr onclick=\"location='"'"'switch.sh?range=%s'"'"'\" style=\"cursor:pointer\"><td>%s</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td><td>%.1f / %.1f</td></tr>\n", \
+        keys[i], keys[i], lbl, avg_f, avg_c, min_f, mmin[i], max_f, mmax[i]
     }
   }')
 
-  chart_data=$(echo "$awk_output" | head -1)
-  stats_rows=$(echo "$awk_output" | tail -n +2)
+  if [[ -z "$chart_from_dat" ]]; then
+    chart_data=$(echo "$awk_output" | head -1)
+  fi
+  live_temp_rows=$(echo "$awk_output" | grep '^temp:' | sed 's/^temp:[^|]*|//')
 fi
 
-# Process heater runtime stats from column 3 of temp CSV
-runtime_rows=$(cat /var/lib/heater-temp.csv /run/heater-temp.csv 2>/dev/null | awk -F, \
+# Compute runtime stats for live months from raw CSV
+live_runtime_rows=$(cat "$disk_csv" "$ram_csv" 2>/dev/null | awk -F, \
   -v now="$now" \
   -v m_starts="$month_starts" \
   -v m_labels="$month_labels" \
+  -v m_keys="$month_keys" \
+  -v live="$live_months" \
 'BEGIN {
   nm = split(m_starts, starts, "|")
   split(m_labels, labels, "|")
+  split(m_keys, keys, "|")
+  nl = split(live, live_arr, "|")
+  for (j = 1; j <= nl; j++) live_set[live_arr[j]] = 1
 }
 {
   epoch = $1 + 0; st = $3 + 0
   if (epoch == 0 || $3 == "") next
-
   for (i = 1; i < nm; i++) {
     if (epoch >= starts[i] + 0 && epoch < starts[i+1] + 0) {
-      rcnt[i]++
-      if (st == 1) secs[i] += 60
+      if (keys[i] in live_set) {
+        rcnt[i]++
+        if (st == 1) secs[i] += 60
+      }
       break
     }
   }
@@ -168,19 +252,44 @@ END {
   for (i = 1; i < nm; i++) {
     if (rcnt[i] + 0 == 0) continue
     hours = secs[i] + 0 > 0 ? secs[i] / 3600 : 0
-
     if (i == nm - 1)
       possible = int((now + 0 - starts[i] + 0) / 60)
     else
       possible = int((starts[i+1] + 0 - starts[i] + 0) / 60)
     pct = (possible > 0) ? (rcnt[i] / possible) * 100 : 0
     lbl = (pct >= 100) ? labels[i] : sprintf("%s (%.1f%%)", labels[i], pct)
-
     days = (i == nm - 1) ? (now + 0 - starts[i] + 0) / 86400 : (starts[i+1] + 0 - starts[i] + 0) / 86400
     avg = (days > 0) ? hours / days : 0
     printf "<tr><td>%s</td><td>%.1f</td><td>%.1f</td></tr>\n", lbl, hours, avg
   }
 }')
+
+# Merge pre-computed + live stats rows (pre-computed are older months, live is current)
+stats_rows="${pre_temp_rows}${live_temp_rows}"
+runtime_rows="${pre_runtime_rows}${live_runtime_rows}"
+
+# Add onclick to pre-computed temp rows (they come from .dat without onclick)
+# We need to add clickability to pre-computed rows too
+stats_rows_final=""
+IFS='|' read -ra mk_arr <<< "$month_keys"
+for mk in "${mk_arr[@]}"; do
+  dat="$chart_dir/$mk.dat"
+  if [[ "$mk" != "$cur_month" && -f "$dat" ]]; then
+    row=$(grep '^temp|' "$dat" | cut -d'|' -f2-)
+    if [[ -n "$row" ]]; then
+      # Add onclick to existing <tr>
+      row="${row/<tr>/<tr onclick=\"location=\'switch.sh?range=$mk\'\" style=\"cursor:pointer\">}"
+      stats_rows_final="${stats_rows_final}${row}
+"
+    fi
+  else
+    # Live-computed row (already has onclick from awk)
+    row=$(echo "$awk_output" 2>/dev/null | grep "^temp:$mk|" | sed 's/^temp:[^|]*|//')
+    [[ -n "$row" ]] && stats_rows_final="${stats_rows_final}${row}
+"
+  fi
+done
+[[ -n "$stats_rows_final" ]] && stats_rows="$stats_rows_final"
 
 # === HTML Output ===
 echo -e "Content-type: text/html\r\n\r\n"
@@ -244,12 +353,22 @@ EOF
 fi
 
 if [[ "$enable_temp" == "yes" ]]; then
+# Range button styles
+btn_7d="btn-outline-primary"
+btn_30d="btn-outline-primary"
+if [[ "$range" == "7d" ]]; then btn_7d="btn-primary"; fi
+if [[ "$range" == "30d" ]]; then btn_30d="btn-primary"; fi
+
 cat << EOF
 
 <div class="card mb-3">
-<div class="card-header"><h5 class="mb-0">Temperature - Last 7 Days</h5></div>
+<div class="card-header"><h5 class="mb-0">$chart_title</h5></div>
 <div class="card-body">
   <p class="mb-2"><strong>Current:</strong> $temp_display</p>
+  <div class="mb-2">
+    <a href="switch.sh?range=7d" class="btn btn-sm $btn_7d">7 Days</a>
+    <a href="switch.sh?range=30d" class="btn btn-sm $btn_30d">30 Days</a>
+  </div>
   <canvas id="tempChart"></canvas>
   <button id="resetZoom" style="display:none" class="btn btn-sm btn-outline-secondary mt-2" onclick="tempChart.resetZoom()">Reset zoom</button>
   <p id="noChartData" style="display:none" class="text-muted mb-0">No temperature history yet. Data will appear after the logging cron job runs.</p>
@@ -260,7 +379,7 @@ cat << EOF
 <div class="card-header"><h5 class="mb-0">Monthly Statistics</h5></div>
 <div class="card-body">
 <div class="table-responsive">
-<table class="table table-sm table-striped mb-0">
+<table class="table table-sm table-striped table-hover mb-0">
 <thead><tr><th>Month</th><th>Avg (&deg;F / &deg;C)</th><th>Min (&deg;F / &deg;C)</th><th>Max (&deg;F / &deg;C)</th></tr></thead>
 <tbody>
 $stats_rows

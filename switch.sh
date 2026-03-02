@@ -68,9 +68,13 @@ if [[ -n "$sched_dt" && ( "$sched_action" == "0" || "$sched_action" == "1" ) ]];
     (
       flock -x 200
       echo "$now,$sched_epoch,$sched_action" >> "$sched_csv"
-    ) 200>"${sched_csv}.lock"
-    action_word=$( [[ "$sched_action" == "1" ]] && echo "ON" || echo "OFF" )
-    sched_msg="<div class=\"alert alert-success alert-sm py-1 mb-2\">Scheduled heater $action_word for $(date -d @"$sched_epoch" '+%b %d, %Y %I:%M %p').</div>"
+    ) 200>/tmp/heater-schedule.lock 2>/dev/null
+    if grep -q "^${now},${sched_epoch},${sched_action}$" "$sched_csv" 2>/dev/null; then
+      action_word=$( [[ "$sched_action" == "1" ]] && echo "ON" || echo "OFF" )
+      sched_msg="<div class=\"alert alert-success alert-sm py-1 mb-2\">Scheduled heater $action_word for $(date -d @"$sched_epoch" '+%b %d, %Y %I:%M %p').</div>"
+    else
+      sched_msg='<div class="alert alert-danger alert-sm py-1 mb-2">Failed to save schedule. Run <code>sudo log_temp.sh</code> once to initialize.</div>'
+    fi
   fi
 fi
 
@@ -81,7 +85,7 @@ if [[ -n "$cancel_id" && "$cancel_id" =~ ^[0-9]+$ && -f "$sched_csv" ]]; then
     grep -v "^${cancel_id}," "$sched_csv" > "${sched_csv}.tmp"
     cat "${sched_csv}.tmp" > "$sched_csv"
     rm -f "${sched_csv}.tmp"
-  ) 200>"${sched_csv}.lock"
+  ) 200>/tmp/heater-schedule.lock 2>/dev/null
   sched_msg='<div class="alert alert-info alert-sm py-1 mb-2">Schedule cancelled.</div>'
 fi
 

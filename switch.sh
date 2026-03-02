@@ -156,26 +156,29 @@ runtime_rows=$(cat /var/lib/heater-temp.csv /run/heater-temp.csv 2>/dev/null | a
   epoch = $1 + 0; st = $3 + 0
   if (epoch == 0 || $3 == "") next
 
-  # On each row where heater is on, count 60s (one cron interval)
-  if (st == 1) {
-    for (i = 1; i < nm; i++) {
-      if (epoch >= starts[i] + 0 && epoch < starts[i+1] + 0) {
-        secs[i] += 60
-        break
-      }
+  for (i = 1; i < nm; i++) {
+    if (epoch >= starts[i] + 0 && epoch < starts[i+1] + 0) {
+      rcnt[i]++
+      if (st == 1) secs[i] += 60
+      break
     }
   }
 }
 END {
   for (i = 1; i < nm; i++) {
-    if (secs[i] + 0 == 0) continue
-    hours = secs[i] / 3600
+    if (rcnt[i] + 0 == 0) continue
+    hours = secs[i] + 0 > 0 ? secs[i] / 3600 : 0
+
     if (i == nm - 1)
-      days = (now + 0 - starts[i] + 0) / 86400
+      possible = int((now + 0 - starts[i] + 0) / 60)
     else
-      days = (starts[i+1] + 0 - starts[i] + 0) / 86400
+      possible = int((starts[i+1] + 0 - starts[i] + 0) / 60)
+    pct = (possible > 0) ? (rcnt[i] / possible) * 100 : 0
+    lbl = (pct >= 100) ? labels[i] : sprintf("%s (%.1f%%)", labels[i], pct)
+
+    days = (i == nm - 1) ? (now + 0 - starts[i] + 0) / 86400 : (starts[i+1] + 0 - starts[i] + 0) / 86400
     avg = (days > 0) ? hours / days : 0
-    printf "<tr><td>%s</td><td>%.1f</td><td>%.1f</td></tr>\n", labels[i], hours, avg
+    printf "<tr><td>%s</td><td>%.1f</td><td>%.1f</td></tr>\n", lbl, hours, avg
   }
 }')
 

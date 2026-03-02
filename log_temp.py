@@ -193,11 +193,12 @@ def do_log():
     ram_conn.commit()
     ram_conn.close()
 
-    # Ensure www-data can read the RAM db
-    try:
-        os.chmod(str(config.RAM_DB), 0o664)
-    except OSError:
-        pass
+    # Ensure www-data can read the RAM and disk dbs
+    for db_path in (config.RAM_DB, config.DISK_DB):
+        try:
+            os.chmod(str(db_path), 0o664)
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------------------

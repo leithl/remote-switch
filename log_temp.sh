@@ -206,7 +206,7 @@ if [[ -s "$sched_csv" ]]; then
     else
       : > "$sched_csv"
     fi
-  ) 200>"${sched_csv}.lock"
+  ) 200>/tmp/heater-schedule.lock
 fi
 
 # Read temperature from DS18B20 1-wire probe (optional)

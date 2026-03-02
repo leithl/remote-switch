@@ -1,10 +1,14 @@
 #!/bin/bash
 
-# https://gist.github.com/pablochacin/8016575?permalink_comment_id=4450245
-# the following one liner creates a shell variable from every parameter in a
-# the query string in the variable QUERY, of the form p1=v1&p2=v2,... and sets it to
-# the corresponding value so that parameters can be accessed by its name $p1, $p2, ...
-for p in ${QUERY_STRING//&/ };do kvp=( ${p/=/ } ); k=${kvp[0]};v=${kvp[1]};eval $k=$v;done
+# Safely extract known parameters from the query string.
+# The previous approach used eval on raw input, which allows remote code execution.
+IFS='&' read -ra params <<< "$QUERY_STRING"
+for p in "${params[@]}"; do
+  IFS='=' read -r key val <<< "$p"
+  if [[ "$key" == "state" ]]; then
+    state="$val"
+  fi
+done
 
 # Specify the GPIO file path
 gpio_pin="17"

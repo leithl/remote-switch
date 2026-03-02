@@ -452,8 +452,9 @@ var data = [$chart_data];
 var heaterRanges = [$heater_data];
 var coldRanges = [$cold_data];
 var heaterData = data.map(function(d) {
+  var bucketEnd = d.x + 900000;
   for (var j = 0; j < heaterRanges.length; j++) {
-    if (d.x >= heaterRanges[j].xMin && d.x <= heaterRanges[j].xMax) return {x: d.x, y: d.y};
+    if (d.x < heaterRanges[j].xMax && bucketEnd > heaterRanges[j].xMin) return {x: d.x, y: d.y};
   }
   return {x: d.x, y: null};
 });

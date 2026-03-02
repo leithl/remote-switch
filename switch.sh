@@ -33,9 +33,11 @@ if [[ ! -f "$gpio_value" ]]; then
   exit 1
 fi
 
-# Only write to GPIO if state is exactly "0" or "1"
+# Only write to GPIO if state is exactly "0" or "1", then redirect
 if [[ "$state" == "0" || "$state" == "1" ]]; then
   echo "$state" > "$gpio_value"
+  echo -e "Status: 303 See Other\r\nLocation: switch.sh\r\n\r"
+  exit 0
 fi
 
 # Read the value from the GPIO file
@@ -70,8 +72,9 @@ if [[ -n "$sched_dt" && ( "$sched_action" == "0" || "$sched_action" == "1" ) ]];
       echo "$now,$sched_epoch,$sched_action" >> "$sched_csv"
     ) 200>/tmp/heater-schedule.lock 2>/dev/null
     if grep -q "^${now},${sched_epoch},${sched_action}$" "$sched_csv" 2>/dev/null; then
-      action_word=$( [[ "$sched_action" == "1" ]] && echo "ON" || echo "OFF" )
-      sched_msg="<div class=\"alert alert-success alert-sm py-1 mb-2\">Scheduled heater $action_word for $(date -d @"$sched_epoch" '+%b %d, %Y %I:%M %p').</div>"
+      # Redirect to clean URL to prevent duplicate on refresh
+      echo -e "Status: 303 See Other\r\nLocation: switch.sh\r\n\r"
+      exit 0
     else
       sched_msg='<div class="alert alert-danger alert-sm py-1 mb-2">Failed to save schedule. Run <code>sudo log_temp.sh</code> once to initialize.</div>'
     fi
@@ -86,7 +89,9 @@ if [[ -n "$cancel_id" && "$cancel_id" =~ ^[0-9]+$ && -f "$sched_csv" ]]; then
     cat "${sched_csv}.tmp" > "$sched_csv"
     rm -f "${sched_csv}.tmp"
   ) 200>/tmp/heater-schedule.lock 2>/dev/null
-  sched_msg='<div class="alert alert-info alert-sm py-1 mb-2">Schedule cancelled.</div>'
+  # Redirect to clean URL to prevent duplicate on refresh
+  echo -e "Status: 303 See Other\r\nLocation: switch.sh\r\n\r"
+  exit 0
 fi
 
 # Read pending schedules for display

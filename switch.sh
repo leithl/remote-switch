@@ -12,7 +12,7 @@ done
 
 # Specify the GPIO file path
 gpio_pin="17"
-gpio_file="/sys/class/gpio/gpio$gpio_pin/"
+gpio_file="/sys/class/gpio/gpio$gpio_pin"
 gpio_value="$gpio_file/value"
 
 # Only write to GPIO if state is exactly "0" or "1"

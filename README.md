@@ -70,13 +70,13 @@ sudo apt install python3-jinja2
 
 ### 5. Deploy Files
 
-Copy the project files to your cgi-bin directory (e.g. `/usr/lib/cgi-bin/remote-switch/`):
+Clone the repository into your cgi-bin directory:
 
 ```bash
-sudo mkdir -p /usr/lib/cgi-bin/remote-switch/templates
-sudo cp aggregate.py config.py log_temp.py switch.py /usr/lib/cgi-bin/remote-switch/
-sudo cp templates/index.html /usr/lib/cgi-bin/remote-switch/templates/
+sudo git clone https://github.com/leithl/remote-switch.git /usr/lib/cgi-bin/remote-switch
 ```
+
+Future updates are then just `sudo git pull` from that directory.
 
 ### 6. Configuration
 
@@ -94,15 +94,10 @@ The logger writes to SQLite on disk at `/var/lib/heater/heater.db`. The director
 ```bash
 sudo mkdir -p /var/lib/heater
 sudo chown root:www-data /var/lib/heater
-sudo chmod 775 /var/lib/heater
+sudo chmod 2775 /var/lib/heater
 ```
 
-The database file itself is created automatically on the first cron run. After that:
-
-```bash
-sudo chown root:www-data /var/lib/heater/heater.db
-sudo chmod 664 /var/lib/heater/heater.db
-```
+The database file is created automatically on the first cron run and its permissions are set correctly by the logger — no manual step needed.
 
 ### 8. Cron Jobs
 

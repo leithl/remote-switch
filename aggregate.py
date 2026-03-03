@@ -170,3 +170,83 @@ def compute(rows, cutoff, chart_end):
         "ambient_stats": ambient_stats,
         "runtime_stats": runtime_stats,
     }
+
+
+def compute_bucketed(rows, cutoff, chart_end):
+    """
+    Fast chart-data computation from pre-bucketed rows returned by config.query_bucketed().
+
+    Processes ~15x fewer rows than compute() by using SQL GROUP BY to pre-aggregate
+    per-minute readings into 15-min buckets before Python sees them.
+
+    Args:
+        rows:      Iterable of (bucket_epoch, avg_temp_c, avg_ambient_c, avg_heater_state)
+                   as returned by config.query_bucketed(), sorted by bucket_epoch.
+        cutoff:    Start epoch (inclusive).
+        chart_end: End epoch (exclusive).
+
+    Returns dict with the same chart-rendering keys as compute():
+        chart_data      list of {x: epoch_ms, y: temp_f}
+        ambient_data    list of {x: epoch_ms, y: temp_f}  (4-bucket rolling avg)
+        heater_ranges   list of {xMin: epoch_ms, xMax: epoch_ms}
+        cold_ranges     list of {xMin: epoch_ms, xMax: epoch_ms}
+    """
+    BUCKET_SECS = 900  # 15 min
+
+    chart_data = []
+    ambient_data = []
+    heater_ranges = []
+    cold_ranges = []
+
+    amb_window = deque(maxlen=4)
+    in_heater = False
+    in_cold = False
+    heater_start = heater_last = 0
+    cold_start = cold_last = 0
+
+    for b, avg_temp_c, avg_ambient_c, avg_heater in rows:
+        if b < cutoff or b >= chart_end:
+            continue
+
+        # Temperature / cold ranges
+        if avg_temp_c is not None:
+            chart_data.append({"x": b * 1000, "y": round(avg_temp_c * 1.8 + 32, 1)})
+            cold = avg_temp_c <= 8.89
+            if cold and not in_cold:
+                cold_start = b
+                in_cold = True
+            elif not cold and in_cold:
+                cold_ranges.append({"xMin": cold_start * 1000, "xMax": (cold_last + BUCKET_SECS) * 1000})
+                in_cold = False
+            if cold:
+                cold_last = b
+
+        # Heater ranges (avg_heater > 0 means heater was on for part of this bucket)
+        if avg_heater is not None:
+            on = avg_heater > 0
+            if on and not in_heater:
+                heater_start = b
+                in_heater = True
+            elif not on and in_heater:
+                heater_ranges.append({"xMin": heater_start * 1000, "xMax": (heater_last + BUCKET_SECS) * 1000})
+                in_heater = False
+            if on:
+                heater_last = b
+
+        # Ambient (4-bucket rolling avg)
+        if avg_ambient_c is not None:
+            amb_window.append(avg_ambient_c * 1.8 + 32)
+            ambient_data.append({"x": b * 1000, "y": round(sum(amb_window) / len(amb_window), 1)})
+
+    # Close open ranges
+    if in_heater:
+        heater_ranges.append({"xMin": heater_start * 1000, "xMax": (heater_last + BUCKET_SECS) * 1000})
+    if in_cold:
+        cold_ranges.append({"xMin": cold_start * 1000, "xMax": (cold_last + BUCKET_SECS) * 1000})
+
+    return {
+        "chart_data": chart_data,
+        "ambient_data": ambient_data,
+        "heater_ranges": heater_ranges,
+        "cold_ranges": cold_ranges,
+    }

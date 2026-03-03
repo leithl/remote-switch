@@ -370,8 +370,8 @@ def _handle(environ):
                 chart_from_cache = True
 
         if not chart_from_cache:
-            rows = config.query_readings(conn, chart_cutoff, chart_end_epoch)
-            live_result = aggregate.compute(rows, chart_cutoff, chart_end_epoch)
+            bucketed = config.query_bucketed(conn, chart_cutoff, chart_end_epoch)
+            live_result = aggregate.compute_bucketed(bucketed, chart_cutoff, chart_end_epoch)
             chart_data = live_result["chart_data"]
             heater_ranges = live_result["heater_ranges"]
             cold_ranges = live_result["cold_ranges"]
@@ -399,22 +399,15 @@ def _handle(environ):
             ).fetchall()
         }
 
-        # Fetch all live-month rows in one batch query
-        live_months = [
-            (mk, lbl, m_start, effective_end)
-            for mk, lbl, m_start, m_end, effective_end, is_current in month_meta
-            if is_current or mk not in cache_map
+        # Single SQL query for all uncached months' stats (replaces N Python aggregate.compute calls)
+        live_month_meta = [
+            m for m in month_meta if m[5] or m[0] not in cache_map  # is_current or uncached
         ]
-
-        live_rows_by_month = {}
-        if live_months:
-            batch_start = min(m[2] for m in live_months)
-            batch_end = max(m[3] for m in live_months)
-            all_live_rows = config.query_readings(conn, batch_start, batch_end)
-            for mk, lbl, m_start, effective_end in live_months:
-                live_rows_by_month[mk] = [
-                    r for r in all_live_rows if m_start <= r[0] < effective_end
-                ]
+        live_batch_stats = {}
+        if live_month_meta:
+            batch_start = min(m[2] for m in live_month_meta)
+            batch_end = max(m[4] for m in live_month_meta)
+            live_batch_stats = config.query_batch_stats(conn, batch_start, batch_end)
 
         for mk, lbl, m_start, m_end, effective_end, is_current in month_meta:
             cached = cache_map.get(mk) if not is_current else None
@@ -454,12 +447,11 @@ def _handle(environ):
                         h_pct = rs.get("heater_coverage_pct", 0)
                         runtime_rows.append(_runtime_row(lbl, rs, h_pct))
             else:
-                # Live computation (rows pre-fetched in batch above)
-                rows = live_rows_by_month.get(mk, [])
-                result = aggregate.compute(rows, m_start, effective_end)
-                ts = result["temp_stats"]
-                as_ = result["ambient_stats"]
-                rs = result["runtime_stats"]
+                # Live computation via SQL batch stats
+                sql_row = live_batch_stats.get(mk)
+                if not sql_row:
+                    continue
+                ts, as_, rs = _build_stats(sql_row, m_start, effective_end)
 
                 if ts and rs:
                     t_pct = rs.get("temp_coverage_pct", 0)
@@ -505,6 +497,48 @@ def _handle(environ):
         [("Content-Type", "text/html; charset=utf-8")],
         body.encode("utf-8"),
     )
+
+
+def _build_stats(sql_row, m_start, effective_end):
+    """
+    Convert a query_batch_stats() tuple to (temp_stats, ambient_stats, runtime_stats) dicts.
+    Returns the same dict structure as aggregate.compute() produces for those keys.
+    """
+    (avg_c, min_c, max_c, cold_mins, count_temp,
+     on_mins, count_heater,
+     avg_amb, min_amb, max_amb, cold_amb_mins, count_amb) = sql_row
+
+    possible_mins = (effective_end - m_start) / 60
+    days = (effective_end - m_start) / 86400
+
+    ts = None
+    if count_temp:
+        ts = {
+            "avg_f": round(avg_c * 1.8 + 32, 1), "avg_c": round(avg_c, 1),
+            "min_f": round(min_c * 1.8 + 32, 1), "min_c": round(min_c, 1),
+            "max_f": round(max_c * 1.8 + 32, 1), "max_c": round(max_c, 1),
+            "cold_hrs": round(cold_mins / 60, 1),
+        }
+
+    as_ = None
+    if count_amb:
+        as_ = {
+            "avg_f": round(avg_amb * 1.8 + 32, 1), "avg_c": round(avg_amb, 1),
+            "min_f": round(min_amb * 1.8 + 32, 1), "min_c": round(min_amb, 1),
+            "max_f": round(max_amb * 1.8 + 32, 1), "max_c": round(max_amb, 1),
+            "cold_hrs": round(cold_amb_mins / 60, 1),
+        }
+
+    rs = None
+    if count_temp:
+        rs = {
+            "on_hrs": round(on_mins / 60, 1),
+            "avg_hrs_day": round((on_mins / 60) / days, 1) if days > 0 else 0.0,
+            "temp_coverage_pct": round(count_temp / possible_mins * 100, 1) if possible_mins > 0 else 0.0,
+            "heater_coverage_pct": round(count_heater / possible_mins * 100, 1) if possible_mins > 0 else 0.0,
+        }
+
+    return ts, as_, rs
 
 
 def _is_valid_month(s):

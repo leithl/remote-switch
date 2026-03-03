@@ -286,6 +286,84 @@ def query_readings(conn, since_epoch, until_epoch):
         ).fetchall()
 
 
+def query_bucketed(conn, since_epoch, until_epoch, bucket_secs=900):
+    """
+    Return pre-aggregated 15-min bucket rows for chart rendering.
+
+    Uses SQL GROUP BY to collapse ~N per-minute rows into ~N/15 rows,
+    replacing Python-side bucketing in aggregate.compute().
+
+    Each row: (bucket_epoch, avg_temp_c, avg_ambient_c, avg_heater_state).
+    avg_heater_state is the fraction of minutes in the bucket the heater was on
+    (0.0–1.0), or None if heater_state was never logged in this bucket.
+    """
+    bs = bucket_secs
+    select = (
+        f"(epoch/{bs})*{bs},"
+        " AVG(temp_c), AVG(ambient_c), AVG(heater_state)"
+    )
+    group = f"GROUP BY (epoch/{bs})*{bs} ORDER BY (epoch/{bs})*{bs}"
+    if _has_ram(conn):
+        sql = (
+            f"SELECT {select} FROM ("
+            "SELECT epoch, temp_c, heater_state, ambient_c FROM readings"
+            " WHERE epoch >= ? AND epoch < ?"
+            " UNION"
+            " SELECT epoch, temp_c, heater_state, ambient_c FROM ram.readings"
+            " WHERE epoch >= ? AND epoch < ?"
+            f") {group}"
+        )
+        return conn.execute(sql, (since_epoch, until_epoch, since_epoch, until_epoch)).fetchall()
+    sql = f"SELECT {select} FROM readings WHERE epoch >= ? AND epoch < ? {group}"
+    return conn.execute(sql, (since_epoch, until_epoch)).fetchall()
+
+
+def query_batch_stats(conn, since_epoch, until_epoch):
+    """
+    Compute per-calendar-month aggregated stats in a single SQL query.
+
+    Replaces N calls to aggregate.compute() for monthly stats — all months
+    are grouped in one pass over the data.
+
+    Returns dict: {month_key: stats_tuple} where month_key is 'YYYY-MM' in
+    local time and stats_tuple is:
+        (avg_c, min_c, max_c, cold_mins, count_temp,
+         on_mins, count_heater,
+         avg_amb_c, min_amb_c, max_amb_c, cold_amb_mins, count_amb)
+    Months with no data are absent from the dict.
+    """
+    select = (
+        "strftime('%Y-%m', epoch, 'unixepoch', 'localtime') AS mk,"
+        " AVG(temp_c), MIN(temp_c), MAX(temp_c),"
+        " SUM(CASE WHEN temp_c <= 8.89 THEN 1 ELSE 0 END),"
+        " COUNT(temp_c),"
+        " SUM(CASE WHEN heater_state = 1 THEN 1 ELSE 0 END),"
+        " COUNT(heater_state),"
+        " AVG(ambient_c), MIN(ambient_c), MAX(ambient_c),"
+        " SUM(CASE WHEN ambient_c <= 8.89 THEN 1 ELSE 0 END),"
+        " COUNT(ambient_c)"
+    )
+    if _has_ram(conn):
+        sql = (
+            f"SELECT {select} FROM ("
+            "SELECT epoch, temp_c, heater_state, ambient_c FROM readings"
+            " WHERE epoch >= ? AND epoch < ?"
+            " UNION"
+            " SELECT epoch, temp_c, heater_state, ambient_c FROM ram.readings"
+            " WHERE epoch >= ? AND epoch < ?"
+            ") GROUP BY mk ORDER BY mk"
+        )
+        rows = conn.execute(sql, (since_epoch, until_epoch, since_epoch, until_epoch)).fetchall()
+    else:
+        sql = (
+            f"SELECT {select} FROM readings"
+            " WHERE epoch >= ? AND epoch < ?"
+            " GROUP BY mk ORDER BY mk"
+        )
+        rows = conn.execute(sql, (since_epoch, until_epoch)).fetchall()
+    return {row[0]: row[1:] for row in rows}
+
+
 def _has_ram(conn):
     """Return True if 'ram' database is attached."""
     for row in conn.execute("PRAGMA database_list"):

@@ -379,7 +379,7 @@ def _handle(environ):
 
         # Build per-month stats (13 months) with batch queries
         month_meta = []
-        for i in range(12, -1, -1):
+        for i in range(13):
             md = config.subtract_months(cur_month_date, i)
             mk = md.strftime("%Y-%m")
             lbl = _month_label(md)

@@ -212,29 +212,68 @@ def _handle(environ):
         )
         _respond("image/svg+xml", svg)
 
-    # --- METAR proxy (avoids CORS; lazy-loaded by client JS) ---
-    if qs.get("metar") == "1":
+    # --- METAR / TAF proxy (avoids CORS; lazy-loaded by client JS) ---
+    if qs.get("metar") == "1" or qs.get("taf") == "1":
+        import json as _json
+        import math
         import urllib.request
-        metar_lat, metar_lon, _ = config.get_location()
-        metar_id = config.load_env().get("LOCATION", "").strip()
-        if metar_id:
-            if len(metar_id) == 3:
-                metar_id = "K" + metar_id
-            url = f"https://aviationweather.gov/api/data/metar?ids={metar_id}&format=raw&hours=1"
-        elif metar_lat and metar_lon:
-            d = 0.3
-            la, lo = float(metar_lat), float(metar_lon)
-            url = f"https://aviationweather.gov/api/data/metar?bbox={la-d},{lo-d},{la+d},{lo+d}&format=raw&hours=1"
-        else:
-            _respond("text/plain", "")
-        line = ""
-        try:
-            req = urllib.request.urlopen(url, timeout=5)
-            text = req.read().decode("utf-8", errors="replace").strip()
-            line = text.split("\n")[0] if text else ""
-        except Exception:
-            pass
-        _respond("text/plain", line)
+
+        is_taf = qs.get("taf") == "1"
+        product = "taf" if is_taf else "metar"
+        wx_lat, wx_lon, _ = config.get_location()
+        wx_id = config.load_env().get("LOCATION", "").strip()
+        if wx_id and len(wx_id) == 3:
+            wx_id = "K" + wx_id
+
+        result = ""
+
+        # Try station ID first
+        if wx_id:
+            try:
+                url = f"https://aviationweather.gov/api/data/{product}?ids={wx_id}&format=raw&hours=1"
+                req = urllib.request.urlopen(url, timeout=5)
+                text = req.read().decode("utf-8", errors="replace").strip()
+                if text:
+                    result = text.split("\n")[0] if not is_taf else text
+            except Exception:
+                pass
+
+        # Bbox fallback — for METAR use raw; for TAF use json to check distance
+        if not result and wx_lat and wx_lon:
+            la, lo = float(wx_lat), float(wx_lon)
+            d = 0.35  # ~21nm along axis
+            try:
+                if is_taf:
+                    url = (f"https://aviationweather.gov/api/data/taf"
+                           f"?bbox={la-d},{lo-d},{la+d},{lo+d}&format=json")
+                    req = urllib.request.urlopen(url, timeout=5)
+                    data = _json.loads(req.read().decode())
+                    best, best_nm = None, 999
+                    for item in data:
+                        slat, slon = item.get("lat", 0), item.get("lon", 0)
+                        dlat = math.radians(slat - la)
+                        dlon = math.radians(slon - lo)
+                        a = (math.sin(dlat/2)**2 +
+                             math.cos(math.radians(la)) *
+                             math.cos(math.radians(slat)) *
+                             math.sin(dlon/2)**2)
+                        nm = 3440.065 * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+                        if nm < best_nm:
+                            best_nm, best = nm, item
+                    if best and best_nm <= 20:
+                        result = best.get("rawTAF", best.get("rawOb", ""))
+                else:
+                    url = (f"https://aviationweather.gov/api/data/metar"
+                           f"?bbox={la-d},{lo-d},{la+d},{lo+d}&format=raw&hours=1")
+                    req = urllib.request.urlopen(url, timeout=5)
+                    text = req.read().decode("utf-8", errors="replace").strip()
+                    result = text.split("\n")[0] if text else ""
+            except Exception:
+                pass
+
+        if not wx_id and not (wx_lat and wx_lon):
+            result = ""
+        _respond("text/plain", result)
 
     # --- GPIO check ---
     gpio_path = config._gpio_path()

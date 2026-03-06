@@ -237,6 +237,7 @@ fetch('switch.py?metar=1').then(function(r){return r.text()}).then(function(t){
 }).catch(function(){});
 fetch('switch.py?taf=1').then(function(r){return r.text()}).then(function(t){
   t=t.trim(); if(!t) return;
+  t=t.replace(/ (FM|BECMG|TEMPO|PROB\d{2})/g, '\n  $1');
   var el=document.getElementById('taf'); el.textContent=t; el.style.display='';
 }).catch(function(){});
 </script>

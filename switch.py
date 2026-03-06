@@ -232,8 +232,8 @@ def _handle(environ):
             text = req.read().decode("utf-8", errors="replace").strip()
             line = text.split("\n")[0] if text else ""
             _respond("text/plain", line)
-        except Exception:
-            _respond("text/plain", "")
+        except Exception as e:
+            _respond("text/plain", f"METAR_DEBUG: {type(e).__name__}: {e}")
 
     # --- GPIO check ---
     gpio_path = config._gpio_path()

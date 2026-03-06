@@ -56,8 +56,8 @@
 <div class="card-header"><h5 class="mb-0">{{ chart_title }}</h5></div>
 <div class="card-body">
   <p class="mb-1"><strong>Current:</strong> {{ temp_display }}</p>
-  <p class="mb-1 small text-muted" id="metar" style="display:none"></p>
-  <p class="mb-2 small text-muted" id="taf" style="display:none;white-space:pre-wrap"></p>
+  <p class="mb-1 small text-muted" id="metar" style="display:none;cursor:pointer" onclick="toggleWxDecode(this)"></p>
+  <p class="mb-2 small text-muted" id="taf" style="display:none;white-space:pre-wrap;cursor:pointer" onclick="toggleWxDecode(this)"></p>
   <div class="mb-2">
     <a href="switch.py?range=7d" class="btn btn-sm {{ 'btn-primary' if range == '7d' else 'btn-outline-primary' }}">7 Days</a>
     <a href="switch.py?range=30d" class="btn btn-sm {{ 'btn-primary' if range == '30d' else 'btn-outline-primary' }}">30 Days</a>
@@ -231,6 +231,102 @@ if (data.length > 0) {
 </script>
 {% endif %}
 <script>
+var wxPhenomena = {
+  MI:'shallow',PR:'partial',BC:'patches',DR:'low drifting',BL:'blowing',
+  SH:'showers',TS:'thunderstorm',FZ:'freezing',
+  DZ:'drizzle',RA:'rain',SN:'snow',SG:'snow grains',IC:'ice crystals',
+  PL:'ice pellets',GR:'hail',GS:'small hail',UP:'unknown precip',
+  BR:'mist',FG:'fog',FU:'smoke',VA:'volcanic ash',DU:'dust',
+  SA:'sand',HZ:'haze',PY:'spray',
+  PO:'dust whirls',SQ:'squall',FC:'funnel cloud',SS:'sandstorm',DS:'duststorm'
+};
+var wxCloud = {SKC:'Clear',CLR:'Clear',FEW:'Few',SCT:'Scattered',BKN:'Broken',OVC:'Overcast',VV:'Obscured'};
+function decodeWx(tok) {
+  var m;
+  if (tok === 'AUTO') return 'Automated';
+  if (tok === 'COR') return 'Corrected';
+  if ((m = tok.match(/^(\d{2})(\d{2})(\d{2})Z$/))) return 'Day ' + m[1] + ' ' + m[2] + ':' + m[3] + 'Z';
+  if ((m = tok.match(/^(VRB|\d{3})(\d{2,3})(G(\d{2,3}))?KT$/)))
+    return 'Wind ' + (m[1]==='VRB'?'variable':m[1]+'\u00B0') + ' at ' + +m[2] + (m[4]?' gusting '+m[4]:'') + 'kt';
+  if ((m = tok.match(/^(\d+)(\/(\d+))?SM$/)))
+    return 'Vis ' + (m[3] ? m[1]+'/'+m[3] : m[1]) + ' mi';
+  if (tok === 'P6SM') return 'Vis >6 mi';
+  if ((m = tok.match(/^(SKC|CLR|FEW|SCT|BKN|OVC|VV)(\d{3})(CB|TCU)?$/)))
+    return wxCloud[m[1]] + ' at ' + (+m[2]*100) + 'ft' + (m[3]==='CB'?' (cumulonimbus)':m[3]==='TCU'?' (towering cumulus)':'');
+  if ((m = tok.match(/^([+-]|VC)?([A-Z]{2,})$/)) && !tok.match(/^(METAR|TAF|SPECI|RMK|BECMG|TEMPO|AO[12]|NOSIG|NOSPECI)$/)) {
+    var int = m[1]==='-'?'Light ':m[1]==='+'?'Heavy ':m[1]==='VC'?'Vicinity ':'';
+    var codes = m[2], desc = [];
+    for (var i=0;i<codes.length;i+=2) {
+      var c = codes.substr(i,2);
+      if (wxPhenomena[c]) desc.push(wxPhenomena[c]);
+      else return null;
+    }
+    if (desc.length) return int + desc.join(' ');
+  }
+  if ((m = tok.match(/^(M?)(\d{2})\/(M?)(\d{2})$/)))
+    return 'Temp ' + (m[1]?'-':'') + +m[2] + '\u00B0C, Dewpoint ' + (m[3]?'-':'') + +m[4] + '\u00B0C';
+  if ((m = tok.match(/^A(\d{4})$/)))
+    return 'Altimeter ' + (m[1]/100).toFixed(2) + ' inHg';
+  if ((m = tok.match(/^Q(\d{3,4})$/)))
+    return 'QNH ' + +m[1] + ' hPa';
+  if ((m = tok.match(/^(\d{3})V(\d{3})$/)))
+    return 'Wind variable ' + m[1] + '\u00B0-' + m[2] + '\u00B0';
+  return null;
+}
+function decodeTafGroup(tok) {
+  var m;
+  if ((m = tok.match(/^(\d{2})(\d{2})\/(\d{2})(\d{2})$/)))
+    return 'Valid day ' + m[1] + ' ' + m[2] + ':00Z to day ' + m[3] + ' ' + m[4] + ':00Z';
+  if ((m = tok.match(/^FM(\d{2})(\d{2})(\d{2})$/)))
+    return 'From day ' + m[1] + ' ' + m[2] + ':' + m[3] + 'Z';
+  if (tok === 'BECMG') return 'Becoming';
+  if (tok === 'TEMPO') return 'Temporarily';
+  if ((m = tok.match(/^PROB(\d{2})$/))) return m[1] + '% probability';
+  return null;
+}
+function decodeMetar(raw) {
+  var parts = raw.split(/\s+/);
+  var out = [], rmk = false;
+  for (var i=0;i<parts.length;i++) {
+    var t = parts[i];
+    if (t === 'RMK') { rmk = true; continue; }
+    if (rmk) continue;
+    if (t === 'METAR' || t === 'SPECI') continue;
+    if (i <= 2 && t.match(/^K?[A-Z]{3,4}$/)) { out.push('Station: ' + t); continue; }
+    var d = decodeWx(t);
+    if (d) out.push(d);
+  }
+  return out.join('\n');
+}
+function decodeTaf(raw) {
+  var lines = raw.split('\n');
+  var out = [];
+  for (var li=0;li<lines.length;li++) {
+    var parts = lines[li].trim().split(/\s+/);
+    var lineOut = [];
+    for (var i=0;i<parts.length;i++) {
+      var t = parts[i];
+      if (t === 'TAF') continue;
+      if (t === 'RMK') break;
+      if (i <= 2 && li === 0 && t.match(/^K?[A-Z]{3,4}$/)) { lineOut.push('Station: ' + t); continue; }
+      var d = decodeTafGroup(t) || decodeWx(t);
+      if (d) lineOut.push(d);
+    }
+    out.push(lineOut.join(', '));
+  }
+  return out.join('\n');
+}
+function toggleWxDecode(el) {
+  if (el.dataset.decoded) {
+    el.textContent = el.dataset.raw;
+    delete el.dataset.decoded;
+  } else {
+    el.dataset.raw = el.textContent;
+    var isTaf = el.id === 'taf';
+    el.textContent = isTaf ? decodeTaf(el.dataset.raw) : decodeMetar(el.dataset.raw);
+    el.dataset.decoded = '1';
+  }
+}
 fetch('switch.py?metar=1').then(function(r){return r.text()}).then(function(t){
   t=t.trim(); if(!t) return;
   var el=document.getElementById('metar'); el.textContent=t; el.style.display='';

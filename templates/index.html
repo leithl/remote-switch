@@ -250,19 +250,29 @@ function zuluToLocal(dd, hh, mm) {
   return wxMonths[utc.getMonth()] + ' ' + utc.getDate() + ' '
     + String(utc.getHours()).padStart(2,'0') + ':' + String(utc.getMinutes()).padStart(2,'0');
 }
+function pill(cat, text) {
+  var colors = {
+    station:'primary', time:'secondary', wind:'info', vis:'success',
+    cloud:'warning', wx:'danger', temp:'primary', pressure:'secondary',
+    remark:'light', tafgroup:'dark'
+  };
+  var bg = colors[cat] || 'secondary';
+  var tc = (bg==='light'||bg==='warning') ? ' text-dark' : '';
+  return '<span class="badge rounded-pill bg-' + bg + tc + ' me-1 mb-1" style="font-weight:500">' + text + '</span>';
+}
 function decodeWx(tok) {
   var m;
-  if (tok === 'AUTO') return 'Automated';
-  if (tok === 'COR') return 'Corrected';
+  if (tok === 'AUTO') return pill('time','Automated');
+  if (tok === 'COR') return pill('time','Corrected');
   if ((m = tok.match(/^(\d{2})(\d{2})(\d{2})Z$/)))
-    return zuluToLocal(m[1], m[2], m[3]);
+    return pill('time', zuluToLocal(m[1], m[2], m[3]));
   if ((m = tok.match(/^(VRB|\d{3})(\d{2,3})(G(\d{2,3}))?KT$/)))
-    return 'Wind ' + (m[1]==='VRB'?'variable':m[1]+'\u00B0') + ' at ' + +m[2] + (m[4]?' gusting '+m[4]:'') + 'kt';
+    return pill('wind', (m[1]==='VRB'?'Variable':m[1]+'\u00B0') + ' at ' + +m[2] + (m[4]?' gusting '+m[4]:'') + 'kt');
   if ((m = tok.match(/^(\d+)(\/(\d+))?SM$/)))
-    return 'Vis ' + (m[3] ? m[1]+'/'+m[3] : m[1]) + ' mi';
-  if (tok === 'P6SM') return 'Vis >6 mi';
+    return pill('vis', 'Vis ' + (m[3] ? m[1]+'/'+m[3] : m[1]) + ' mi');
+  if (tok === 'P6SM') return pill('vis','Vis >6 mi');
   if ((m = tok.match(/^(SKC|CLR|FEW|SCT|BKN|OVC|VV)(\d{3})(CB|TCU)?$/)))
-    return wxCloud[m[1]] + ' at ' + (+m[2]*100) + 'ft' + (m[3]==='CB'?' (cumulonimbus)':m[3]==='TCU'?' (towering cumulus)':'');
+    return pill('cloud', wxCloud[m[1]] + ' ' + (+m[2]*100) + 'ft' + (m[3]==='CB'?' CB':m[3]==='TCU'?' TCU':''));
   if ((m = tok.match(/^([+-]|VC)?([A-Z]{2,})$/)) && !tok.match(/^(METAR|TAF|SPECI|RMK|BECMG|TEMPO|AO[12]|NOSIG|NOSPECI)$/)) {
     var int = m[1]==='-'?'Light ':m[1]==='+'?'Heavy ':m[1]==='VC'?'Vicinity ':'';
     var codes = m[2], desc = [];
@@ -271,27 +281,27 @@ function decodeWx(tok) {
       if (wxPhenomena[c]) desc.push(wxPhenomena[c]);
       else return null;
     }
-    if (desc.length) return int + desc.join(' ');
+    if (desc.length) return pill('wx', int + desc.join(' '));
   }
   if ((m = tok.match(/^(M?)(\d{2})\/(M?)(\d{2})$/)))
-    return 'Temp ' + (m[1]?'-':'') + +m[2] + '\u00B0C, Dewpoint ' + (m[3]?'-':'') + +m[4] + '\u00B0C';
+    return pill('temp', (m[1]?'-':'') + +m[2] + '\u00B0C') + pill('temp', 'Dew ' + (m[3]?'-':'') + +m[4] + '\u00B0C');
   if ((m = tok.match(/^A(\d{4})$/)))
-    return 'Altimeter ' + (m[1]/100).toFixed(2) + ' inHg';
+    return pill('pressure', (m[1]/100).toFixed(2) + ' inHg');
   if ((m = tok.match(/^Q(\d{3,4})$/)))
-    return 'QNH ' + +m[1] + ' hPa';
+    return pill('pressure', +m[1] + ' hPa');
   if ((m = tok.match(/^(\d{3})V(\d{3})$/)))
-    return 'Wind variable ' + m[1] + '\u00B0-' + m[2] + '\u00B0';
+    return pill('wind', 'Variable ' + m[1] + '\u00B0\u2013' + m[2] + '\u00B0');
   return null;
 }
 function decodeTafGroup(tok) {
   var m;
   if ((m = tok.match(/^(\d{2})(\d{2})\/(\d{2})(\d{2})$/)))
-    return 'Valid ' + zuluToLocal(m[1], m[2], '00') + ' to ' + zuluToLocal(m[3], m[4], '00');
+    return pill('tafgroup', zuluToLocal(m[1], m[2], '00') + ' \u2013 ' + zuluToLocal(m[3], m[4], '00'));
   if ((m = tok.match(/^FM(\d{2})(\d{2})(\d{2})$/)))
-    return 'From ' + zuluToLocal(m[1], m[2], m[3]);
-  if (tok === 'BECMG') return 'Becoming';
-  if (tok === 'TEMPO') return 'Temporarily';
-  if ((m = tok.match(/^PROB(\d{2})$/))) return m[1] + '% probability';
+    return pill('tafgroup', 'From ' + zuluToLocal(m[1], m[2], m[3]));
+  if (tok === 'BECMG') return pill('tafgroup','Becoming');
+  if (tok === 'TEMPO') return pill('tafgroup','Temporarily');
+  if ((m = tok.match(/^PROB(\d{2})$/))) return pill('tafgroup', m[1] + '% prob');
   return null;
 }
 function decodeMetar(raw) {
@@ -302,16 +312,17 @@ function decodeMetar(raw) {
     if (t === 'RMK') { rmk = true; continue; }
     if (rmk) { rmkParts.push(t); continue; }
     if (t === 'METAR' || t === 'SPECI') continue;
-    if (i <= 2 && t.match(/^K?[A-Z]{3,4}$/)) { out.push('Station: ' + t); continue; }
+    if (i <= 2 && t.match(/^K?[A-Z]{3,4}$/)) { out.push(pill('station', t)); continue; }
     var d = decodeWx(t);
     if (d) out.push(d);
   }
-  if (rmkParts.length) out.push('\nRemarks: ' + rmkParts.join(' '));
-  return out.join('\n');
+  var html = '<div style="line-height:2">' + out.join('') + '</div>';
+  if (rmkParts.length) html += '<div class="mt-1" style="line-height:2">' + pill('remark','RMK') + ' <span class="small">' + rmkParts.join(' ') + '</span></div>';
+  return html;
 }
 function decodeTaf(raw) {
   var lines = raw.split('\n');
-  var out = [];
+  var sections = [];
   for (var li=0;li<lines.length;li++) {
     var parts = lines[li].trim().split(/\s+/);
     var lineOut = [], rmkParts = [], rmk = false;
@@ -320,14 +331,15 @@ function decodeTaf(raw) {
       if (t === 'TAF') continue;
       if (t === 'RMK') { rmk = true; continue; }
       if (rmk) { rmkParts.push(t); continue; }
-      if (i <= 2 && li === 0 && t.match(/^K?[A-Z]{3,4}$/)) { lineOut.push('Station: ' + t); continue; }
+      if (i <= 2 && li === 0 && t.match(/^K?[A-Z]{3,4}$/)) { lineOut.push(pill('station', t)); continue; }
       var d = decodeTafGroup(t) || decodeWx(t);
       if (d) lineOut.push(d);
     }
-    out.push(lineOut.join(', '));
-    if (rmkParts.length) out.push('Remarks: ' + rmkParts.join(' '));
+    var s = '<div style="line-height:2' + (li > 0 ? ';margin-left:1em' : '') + '">' + lineOut.join('') + '</div>';
+    if (rmkParts.length) s += '<div class="mt-1" style="line-height:2;margin-left:1em">' + pill('remark','RMK') + ' <span class="small">' + rmkParts.join(' ') + '</span></div>';
+    sections.push(s);
   }
-  return out.join('\n');
+  return sections.join('');
 }
 function toggleWxDecode(el) {
   if (el.dataset.decoded) {
@@ -336,7 +348,7 @@ function toggleWxDecode(el) {
   } else {
     el.dataset.raw = el.textContent;
     var isTaf = el.id === 'taf';
-    el.textContent = isTaf ? decodeTaf(el.dataset.raw) : decodeMetar(el.dataset.raw);
+    el.innerHTML = isTaf ? decodeTaf(el.dataset.raw) : decodeMetar(el.dataset.raw);
     el.dataset.decoded = '1';
   }
 }

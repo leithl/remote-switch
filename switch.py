@@ -212,6 +212,29 @@ def _handle(environ):
         )
         _respond("image/svg+xml", svg)
 
+    # --- METAR proxy (avoids CORS; lazy-loaded by client JS) ---
+    if qs.get("metar") == "1":
+        import urllib.request
+        metar_lat, metar_lon, _ = config.get_location()
+        metar_id = config.load_env().get("LOCATION", "").strip()
+        if metar_id:
+            if len(metar_id) == 3:
+                metar_id = "K" + metar_id
+            url = f"https://aviationweather.gov/api/data/metar?ids={metar_id}&format=raw&hours=1"
+        elif metar_lat and metar_lon:
+            d = 0.3
+            la, lo = float(metar_lat), float(metar_lon)
+            url = f"https://aviationweather.gov/api/data/metar?bbox={la-d},{lo-d},{la+d},{lo+d}&format=raw&hours=1"
+        else:
+            _respond("text/plain", "")
+        try:
+            req = urllib.request.urlopen(url, timeout=5)
+            text = req.read().decode("utf-8", errors="replace").strip()
+            line = text.split("\n")[0] if text else ""
+            _respond("text/plain", line)
+        except Exception:
+            _respond("text/plain", "")
+
     # --- GPIO check ---
     gpio_path = config._gpio_path()
     if not gpio_path.exists():
@@ -295,9 +318,8 @@ def _handle(environ):
             temp_f = temp_c * 1.8 + 32
             temp_display = f"{temp_c:.1f} \u00b0C | {temp_f:.1f} \u00b0F"
 
-    # --- Location / ambient label ---
-    metar_lat, metar_lon, ambient_label = config.get_location()
-    metar_id = config.load_env().get("LOCATION", "").strip()
+    # --- Ambient label ---
+    _, _, ambient_label = config.get_location()
 
     # --- Pending schedules ---
     conn = config.get_db()
@@ -479,9 +501,6 @@ def _handle(environ):
         toggle_btn=toggle_btn,
         temp_display=temp_display,
         ambient_label=ambient_label,
-        metar_id=metar_id,
-        metar_lat=metar_lat,
-        metar_lon=metar_lon,
         range=range_param,
         chart_title=chart_title,
         chart_data=chart_data,

@@ -55,7 +55,8 @@
 <div class="card mb-3">
 <div class="card-header"><h5 class="mb-0">{{ chart_title }}</h5></div>
 <div class="card-body">
-  <p class="mb-2"><strong>Current:</strong> {{ temp_display }}</p>
+  <p class="mb-1"><strong>Current:</strong> {{ temp_display }}</p>
+  <p class="mb-2 small text-muted" id="metar" style="display:none"></p>
   <div class="mb-2">
     <a href="switch.py?range=7d" class="btn btn-sm {{ 'btn-primary' if range == '7d' else 'btn-outline-primary' }}">7 Days</a>
     <a href="switch.py?range=30d" class="btn btn-sm {{ 'btn-primary' if range == '30d' else 'btn-outline-primary' }}">30 Days</a>
@@ -228,5 +229,24 @@ if (data.length > 0) {
 }
 </script>
 {% endif %}
+<script>
+(function(){
+  var id={{ metar_id | tojson }}, lat={{ metar_lat | tojson }}, lon={{ metar_lon | tojson }};
+  var url;
+  if(id){
+    if(id.length===3) id='K'+id;
+    url='https://aviationweather.gov/api/data/metar?ids='+id+'&format=raw&hours=1';
+  }else if(lat&&lon){
+    var d=0.3, la=parseFloat(lat), lo=parseFloat(lon);
+    url='https://aviationweather.gov/api/data/metar?bbox='+(la-d)+','+(lo-d)+','+(la+d)+','+(lo+d)+'&format=raw&hours=1';
+  }
+  if(!url) return;
+  fetch(url).then(function(r){return r.text()}).then(function(t){
+    t=t.trim(); if(!t) return;
+    var line=t.split('\n')[0];
+    var el=document.getElementById('metar'); el.textContent=line; el.style.display='';
+  }).catch(function(){});
+})();
+</script>
 </body>
 </html>

@@ -295,8 +295,9 @@ def _handle(environ):
             temp_f = temp_c * 1.8 + 32
             temp_display = f"{temp_c:.1f} \u00b0C | {temp_f:.1f} \u00b0F"
 
-    # --- Ambient label ---
-    _, _, ambient_label = config.get_location()
+    # --- Location / ambient label ---
+    metar_lat, metar_lon, ambient_label = config.get_location()
+    metar_id = config.load_env().get("LOCATION", "").strip()
 
     # --- Pending schedules ---
     conn = config.get_db()
@@ -478,6 +479,9 @@ def _handle(environ):
         toggle_btn=toggle_btn,
         temp_display=temp_display,
         ambient_label=ambient_label,
+        metar_id=metar_id,
+        metar_lat=metar_lat,
+        metar_lon=metar_lon,
         range=range_param,
         chart_title=chart_title,
         chart_data=chart_data,

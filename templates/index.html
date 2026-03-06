@@ -56,7 +56,8 @@
 <div class="card-header"><h5 class="mb-0">{{ chart_title }}</h5></div>
 <div class="card-body">
   <p class="mb-1"><strong>Current:</strong> {{ temp_display }}</p>
-  <p class="mb-2 small text-muted" id="metar" style="display:none"></p>
+  <p class="mb-1 small text-muted" id="metar" style="display:none"></p>
+  <pre class="mb-2 small text-muted" id="taf" style="display:none;white-space:pre-wrap"></pre>
   <div class="mb-2">
     <a href="switch.py?range=7d" class="btn btn-sm {{ 'btn-primary' if range == '7d' else 'btn-outline-primary' }}">7 Days</a>
     <a href="switch.py?range=30d" class="btn btn-sm {{ 'btn-primary' if range == '30d' else 'btn-outline-primary' }}">30 Days</a>
@@ -233,6 +234,10 @@ if (data.length > 0) {
 fetch('switch.py?metar=1').then(function(r){return r.text()}).then(function(t){
   t=t.trim(); if(!t) return;
   var el=document.getElementById('metar'); el.textContent=t; el.style.display='';
+}).catch(function(){});
+fetch('switch.py?taf=1').then(function(r){return r.text()}).then(function(t){
+  t=t.trim(); if(!t) return;
+  var el=document.getElementById('taf'); el.textContent=t; el.style.display='';
 }).catch(function(){});
 </script>
 </body>

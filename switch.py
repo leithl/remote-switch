@@ -227,13 +227,14 @@ def _handle(environ):
             url = f"https://aviationweather.gov/api/data/metar?bbox={la-d},{lo-d},{la+d},{lo+d}&format=raw&hours=1"
         else:
             _respond("text/plain", "")
+        line = ""
         try:
             req = urllib.request.urlopen(url, timeout=5)
             text = req.read().decode("utf-8", errors="replace").strip()
             line = text.split("\n")[0] if text else ""
-            _respond("text/plain", line)
-        except Exception as e:
-            _respond("text/plain", f"METAR_DEBUG: {type(e).__name__}: {e}")
+        except Exception:
+            pass
+        _respond("text/plain", line)
 
     # --- GPIO check ---
     gpio_path = config._gpio_path()

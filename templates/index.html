@@ -274,9 +274,10 @@ function decodeWxToken(tok) {
   if ((m = tok.match(/^(\d+)(\/(\d+))?SM$/)))
     return {col:'vis', html:pill('vis', (m[3] ? m[1]+'/'+m[3] : m[1]) + 'mi')};
   if (tok === 'P6SM') return {col:'vis', html:pill('vis','>6mi')};
-  if ((m = tok.match(/^(SKC|CLR|FEW|SCT|BKN|OVC|VV)(\d{3})(CB|TCU)?$/)))
+  if (tok === 'SKC' || tok === 'CLR') return {col:'cloud', html:pill('cloud','Clear')};
+  if ((m = tok.match(/^(FEW|SCT|BKN|OVC|VV)(\d{3})(CB|TCU)?$/)))
     return {col:'cloud', html:pill('cloud', wxCloud[m[1]] + ' ' + (+m[2]*100) + 'ft' + (m[3]==='CB'?' CB':m[3]==='TCU'?' TCU':''))};
-  if ((m = tok.match(/^([+-]|VC)?([A-Z]{2,})$/)) && !tok.match(/^(METAR|TAF|SPECI|RMK|BECMG|TEMPO|AO[12]|NOSIG|NOSPECI)$/)) {
+  if ((m = tok.match(/^([+-]|VC)?([A-Z]{2,})$/)) && !tok.match(/^(METAR|TAF|SPECI|RMK|BECMG|TEMPO|AO[12]|NOSIG|NOSPECI|SKC|CLR)$/)) {
     var pfx = m[1]==='-'?'Lt ':m[1]==='+'?'Hvy ':m[1]==='VC'?'VC ':'';
     var codes = m[2], desc = [];
     for (var i=0;i<codes.length;i+=2) {
@@ -310,7 +311,8 @@ function parseWxRow(tokens, isTaf, isFirstTafLine) {
   var rmkParts = [], rmk = false;
   for (var i=0;i<tokens.length;i++) {
     var t = tokens[i];
-    if (t === 'METAR' || t === 'SPECI' || t === 'TAF') continue;
+    if (t === 'METAR' || t === 'SPECI') { cells.time += pill('station','METAR'); continue; }
+    if (t === 'TAF') { cells.time += pill('station','TAF'); continue; }
     if (t === 'RMK') { rmk = true; continue; }
     if (rmk) { rmkParts.push(t); continue; }
     if (i <= 2 && (!isTaf || isFirstTafLine) && t.match(/^K?[A-Z]{3,4}$/)) {

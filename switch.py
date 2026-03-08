@@ -14,6 +14,7 @@ import json
 import os
 import sys
 import urllib.parse
+import urllib.request
 from datetime import date, datetime
 from pathlib import Path
 
@@ -216,7 +217,6 @@ def _handle(environ):
     if qs.get("metar") == "1" or qs.get("taf") == "1":
         import json as _json
         import math
-        import urllib.request
 
         is_taf = qs.get("taf") == "1"
         product = "taf" if is_taf else "metar"

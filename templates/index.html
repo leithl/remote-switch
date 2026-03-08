@@ -326,17 +326,15 @@ function parseWxRow(tokens, isTaf, isFirstTafLine) {
   return cells;
 }
 function buildTable(rows) {
-  var used = {}; COLS.forEach(function(c){used[c]=false;});
-  rows.forEach(function(r){COLS.forEach(function(c){if(r[c])used[c]=true;});});
-  var html = '<table style="border-collapse:collapse;line-height:2"><tbody>';
+  var html = '';
   rows.forEach(function(r){
-    html += '<tr>';
+    html += '<div style="display:flex;flex-wrap:wrap;line-height:2;margin-bottom:2px">';
     COLS.forEach(function(c){
-      if (used[c]) html += '<td style="vertical-align:top;padding:0 4px 2px 0;white-space:nowrap">' + (r[c]||'') + '</td>';
+      if (r[c]) html += r[c];
     });
-    html += '</tr>';
+    html += '</div>';
   });
-  return html + '</tbody></table>';
+  return html;
 }
 function decodeMetar(raw) {
   var tokens = raw.split(/\s+/);

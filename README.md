@@ -122,9 +122,23 @@ What each job does:
 - **Weekly (Sunday midnight)** — flushes RAM database to `/var/lib/heater/heater.db` on disk
 - **Monthly (1st midnight)** — pre-computes the previous month's chart data and stats into the `monthly_cache` table so past months load instantly; optionally emails a summary
 
-Data lost on reboot is limited to at most ~1 week (since the last flush). This matches the previous CSV-based behaviour.
+On an unplanned power loss, data since the last weekly flush may be lost. For commanded reboots and shutdowns, see step 8 below.
 
-### 8. Firewall
+### 8. Shutdown Flush Service
+
+Install the included systemd unit so that any commanded reboot or shutdown flushes the RAM database to disk first:
+
+```bash
+sudo cp /usr/lib/cgi-bin/remote-switch/heater-flush.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now heater-flush.service
+```
+
+The service does nothing at boot. On any `reboot`, `shutdown`, or `systemctl stop` it runs `log_temp.py flush`, copying RAM readings to the disk database before the filesystem unmounts. On an unplanned power loss the RAM contents are still lost (acceptable — the disk database always has data up to the last flush).
+
+Heater schedules are unaffected by reboots regardless — they are stored on disk and the every-minute cron job catches up any missed schedules on the first tick after boot.
+
+### 9. Firewall
 
 Install and configure a firewall:
 
@@ -135,7 +149,7 @@ sudo ufw allow http
 sudo ufw enable
 ```
 
-### 9. (optional) VPN
+### 10. (optional) VPN
 
 Install OpenVPN or WireGuard to connect to an existing private network.
 

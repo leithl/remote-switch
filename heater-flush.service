@@ -1,0 +1,11 @@
+[Unit]
+Description=Flush heater RAM database to disk on shutdown
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/usr/lib/cgi-bin/remote-switch/log_temp.py flush
+
+[Install]
+WantedBy=multi-user.target

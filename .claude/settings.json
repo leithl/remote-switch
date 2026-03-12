@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s 'https://aviationweather.gov/api/data/metar?ids=KLMO&format=raw&hours=1')",
+      "Bash(curl -s 'https://aviationweather.gov/api/data/metar?lat=40.1678&lon=-105.163&dist=30&format=raw&hours=1')",
+      "Bash(curl -s 'https://aviationweather.gov/api/data/metar?bbox=39.9,-105.4,40.4,-104.9&format=raw&hours=1')",
+      "Bash(git merge origin/claude/issue-1-20260308-2031 -m \"Merge claude/issue-1: allow METAR/TAF pills to wrap on mobile\")",
+      "Bash(git add:*)"
+    ]
+  }
+}

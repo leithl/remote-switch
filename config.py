@@ -323,17 +323,17 @@ def query_readings(conn, since_epoch, until_epoch):
     """
     if _has_ram(conn):
         sql = """
-            SELECT epoch, temp_c, heater_state, ambient_c FROM readings
+            SELECT epoch, temp_c, heater_state, ambient_c, fan_state FROM readings
             WHERE epoch >= ? AND epoch < ?
             UNION
-            SELECT epoch, temp_c, heater_state, ambient_c FROM ram.readings
+            SELECT epoch, temp_c, heater_state, ambient_c, fan_state FROM ram.readings
             WHERE epoch >= ? AND epoch < ?
             ORDER BY epoch
         """
         return conn.execute(sql, (since_epoch, until_epoch, since_epoch, until_epoch)).fetchall()
     else:
         return conn.execute(
-            "SELECT epoch, temp_c, heater_state, ambient_c FROM readings "
+            "SELECT epoch, temp_c, heater_state, ambient_c, fan_state FROM readings "
             "WHERE epoch >= ? AND epoch < ? ORDER BY epoch",
             (since_epoch, until_epoch)
         ).fetchall()
@@ -392,6 +392,8 @@ def query_batch_stats(conn, since_epoch, until_epoch):
         " COUNT(temp_c),"
         " SUM(CASE WHEN heater_state = 1 THEN 1 ELSE 0 END),"
         " COUNT(heater_state),"
+        " SUM(CASE WHEN fan_state = 1 THEN 1 ELSE 0 END),"
+        " COUNT(fan_state),"
         " AVG(ambient_c), MIN(ambient_c), MAX(ambient_c),"
         " SUM(CASE WHEN ambient_c <= 8.89 THEN 1 ELSE 0 END),"
         " COUNT(ambient_c)"
@@ -399,10 +401,10 @@ def query_batch_stats(conn, since_epoch, until_epoch):
     if _has_ram(conn):
         sql = (
             f"SELECT {select} FROM ("
-            "SELECT epoch, temp_c, heater_state, ambient_c FROM readings"
+            "SELECT epoch, temp_c, heater_state, ambient_c, fan_state FROM readings"
             " WHERE epoch >= ? AND epoch < ?"
             " UNION"
-            " SELECT epoch, temp_c, heater_state, ambient_c FROM ram.readings"
+            " SELECT epoch, temp_c, heater_state, ambient_c, fan_state FROM ram.readings"
             " WHERE epoch >= ? AND epoch < ?"
             ") GROUP BY mk ORDER BY mk"
         )

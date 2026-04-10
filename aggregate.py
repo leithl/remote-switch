@@ -35,8 +35,10 @@ def compute(rows, cutoff, chart_end):
     temp_vals = []
     amb_vals = []
     on_mins = 0
+    fan_on_mins = 0
     total_temp_mins = 0
     total_heater_mins = 0
+    total_fan_mins = 0
 
     in_heater = False
     in_cold = False
@@ -46,7 +48,7 @@ def compute(rows, cutoff, chart_end):
     last_epoch = None
 
     for row in sorted(rows, key=lambda r: r[0]):
-        epoch, temp_c, heater_state, ambient_c = row
+        epoch, temp_c, heater_state, ambient_c, fan_state = row[0], row[1], row[2], row[3], row[4] if len(row) > 4 else None
 
         if epoch < cutoff or epoch >= chart_end:
             continue
@@ -90,6 +92,12 @@ def compute(rows, cutoff, chart_end):
                 in_heater = False
             if on:
                 heater_last = epoch
+
+        # --- fan state ---
+        if fan_state is not None:
+            total_fan_mins += 1
+            if fan_state == 1:
+                fan_on_mins += 1
 
         # --- ambient ---
         if ambient_c is not None:
@@ -160,6 +168,8 @@ def compute(rows, cutoff, chart_end):
             "temp_coverage_pct": round(total_temp_mins / possible_mins * 100, 1) if possible_mins > 0 else 0.0,
             "heater_coverage_pct": round(total_heater_mins / possible_mins * 100, 1) if possible_mins > 0 else 0.0,
         }
+        if total_fan_mins > 0:
+            runtime_stats["fan_on_hrs"] = round(fan_on_mins / 60, 1)
 
     return {
         "chart_data": chart_data,

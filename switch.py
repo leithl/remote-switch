@@ -95,45 +95,41 @@ def _month_label(d):
 # Stats row builders
 # ---------------------------------------------------------------------------
 
-def _temp_row(mk, label, ts, pct):
-    """Build a clickable <tr> for monthly temp stats."""
-    cov_label = label if pct >= 100 else f"{label} ({pct:.1f}%)"
-    return Markup(
-        f'<tr onclick="location=\'switch.py?range={html.escape(mk)}\'" style="cursor:pointer">'
+def _month_rows(mk, label, ts, as_, rs, t_pct):
+    """Build merged <tr> row(s) for one month: temp + runtime + optional outdoor sub-row."""
+    cov_label = label if t_pct >= 100 else f"{label} ({t_pct:.1f}%)"
+    click = f' onclick="location=\'switch.py?range={html.escape(mk)}\'" style="cursor:pointer"'
+
+    if rs:
+        heater_cell = f'{rs["on_hrs"]:.1f}h ({rs["avg_hrs_day"]:.1f}/day)'
+        fan_cell = f'{rs["fan_on_hrs"]:.1f}h' if "fan_on_hrs" in rs else "—"
+    else:
+        heater_cell = fan_cell = "—"
+
+    out = Markup(
+        f'<tr{click}>'
         f'<td>{html.escape(cov_label)}</td>'
         f'<td>{ts["avg_f"]:.1f} / {ts["avg_c"]:.1f}</td>'
         f'<td>{ts["min_f"]:.1f} / {ts["min_c"]:.1f}</td>'
         f'<td>{ts["max_f"]:.1f} / {ts["max_c"]:.1f}</td>'
         f'<td>{ts["cold_hrs"]:.1f}</td>'
+        f'<td>{heater_cell}</td>'
+        f'<td>{fan_cell}</td>'
         f'</tr>'
     )
-
-
-def _ambient_row(mk, label, as_, onclick=True):
-    """Build an 'Outdoor' sub-row for ambient stats."""
-    onclick_attr = (
-        f' onclick="location=\'switch.py?range={html.escape(mk)}\'" style="cursor:pointer"'
-        if onclick else ""
-    )
-    return Markup(
-        f'<tr{onclick_attr}>'
-        f'<td class="ps-3 text-muted small">Outdoor</td>'
-        f'<td>{as_["avg_f"]:.1f} / {as_["avg_c"]:.1f}</td>'
-        f'<td>{as_["min_f"]:.1f} / {as_["min_c"]:.1f}</td>'
-        f'<td>{as_["max_f"]:.1f} / {as_["max_c"]:.1f}</td>'
-        f'<td>{as_["cold_hrs"]:.1f}</td>'
-        f'</tr>'
-    )
-
-
-def _runtime_row(label, rs, pct):
-    """Build a <tr> for monthly runtime stats."""
-    cov_label = label if pct >= 100 else f"{label} ({pct:.1f}%)"
-    return Markup(
-        f'<tr><td>{html.escape(cov_label)}</td>'
-        f'<td>{rs["on_hrs"]:.1f}</td>'
-        f'<td>{rs["avg_hrs_day"]:.1f}</td></tr>'
-    )
+    if as_:
+        out += Markup(
+            f'<tr{click}>'
+            f'<td class="ps-3 text-muted small">Outdoor</td>'
+            f'<td>{as_["avg_f"]:.1f} / {as_["avg_c"]:.1f}</td>'
+            f'<td>{as_["min_f"]:.1f} / {as_["min_c"]:.1f}</td>'
+            f'<td>{as_["max_f"]:.1f} / {as_["max_c"]:.1f}</td>'
+            f'<td>{as_["cold_hrs"]:.1f}</td>'
+            f'<td class="text-muted">—</td>'
+            f'<td class="text-muted">—</td>'
+            f'</tr>'
+        )
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -446,7 +442,6 @@ def _handle(environ):
     fan_ranges = []
     ambient_data = []
     combined_stats_rows = []
-    runtime_rows = []
 
     if enable_temp:
         conn = config.get_db()
@@ -511,54 +506,22 @@ def _handle(environ):
             cached = cache_map.get(mk) if not is_current else None
 
             if cached:
-                # Old format (from migrate.py .dat import) has _html_* keys
                 if "_html_temp" in cached:
-                    tr = cached.get("_html_temp", "")
-                    if tr:
-                        combined_stats_rows.append(_old_cache_temp_row(mk, tr))
-                    ar = cached.get("_html_ambient_stat", "")
-                    if ar:
-                        combined_stats_rows.append(_old_cache_ambient_row(mk, ar))
-                    rr = cached.get("_html_runtime", "")
-                    if rr:
-                        runtime_rows.append(Markup(
-                            rr.replace(
-                                "<tr>",
-                                f'<tr onclick="location=\'switch.py?range={html.escape(mk)}\'" '
-                                f'style="cursor:pointer">',
-                                1,
-                            )
-                        ))
-                else:
-                    # New format from log_temp.py rollup
-                    ts = cached.get("temp_stats")
-                    as_ = cached.get("ambient_stats")
-                    rs = cached.get("runtime_stats")
-                    if ts and rs:
-                        t_pct = ts and rs and (
-                            rs.get("temp_coverage_pct", 0)
-                        )
-                        combined_stats_rows.append(_temp_row(mk, lbl, ts, t_pct or 0))
-                    if as_:
-                        combined_stats_rows.append(_ambient_row(mk, lbl, as_))
-                    if rs:
-                        h_pct = rs.get("heater_coverage_pct", 0)
-                        runtime_rows.append(_runtime_row(lbl, rs, h_pct))
+                    continue  # old pre-migration format — incompatible with merged table
+                ts = cached.get("temp_stats")
+                as_ = cached.get("ambient_stats")
+                rs = cached.get("runtime_stats")
+                if ts and rs:
+                    t_pct = rs.get("temp_coverage_pct", 0)
+                    combined_stats_rows.append(_month_rows(mk, lbl, ts, as_, rs, t_pct))
             else:
-                # Live computation via SQL batch stats
                 sql_row = live_batch_stats.get(mk)
                 if not sql_row:
                     continue
                 ts, as_, rs = _build_stats(sql_row, m_start, effective_end)
-
                 if ts and rs:
                     t_pct = rs.get("temp_coverage_pct", 0)
-                    combined_stats_rows.append(_temp_row(mk, lbl, ts, t_pct))
-                if as_:
-                    combined_stats_rows.append(_ambient_row(mk, lbl, as_))
-                if rs:
-                    h_pct = rs.get("heater_coverage_pct", 0)
-                    runtime_rows.append(_runtime_row(lbl, rs, h_pct))
+                    combined_stats_rows.append(_month_rows(mk, lbl, ts, as_, rs, t_pct))
 
         conn.close()
 
@@ -590,7 +553,6 @@ def _handle(environ):
         fan_ranges=fan_ranges,
         ambient_data=ambient_data,
         combined_stats_rows=combined_stats_rows,
-        runtime_rows=runtime_rows,
         sched_msg=sched_msg,
         pending_sched_rows=pending_sched_rows,
         now_dt_min=now_dt_min,
@@ -611,6 +573,7 @@ def _build_stats(sql_row, m_start, effective_end):
     """
     (avg_c, min_c, max_c, cold_mins, count_temp,
      on_mins, count_heater,
+     fan_mins, count_fan,
      avg_amb, min_amb, max_amb, cold_amb_mins, count_amb) = sql_row
 
     possible_mins = (effective_end - m_start) / 60
@@ -642,6 +605,8 @@ def _build_stats(sql_row, m_start, effective_end):
             "temp_coverage_pct": round(count_temp / possible_mins * 100, 1) if possible_mins > 0 else 0.0,
             "heater_coverage_pct": round(count_heater / possible_mins * 100, 1) if possible_mins > 0 else 0.0,
         }
+        if count_fan:
+            rs["fan_on_hrs"] = round(fan_mins / 60, 1)
 
     return ts, as_, rs
 

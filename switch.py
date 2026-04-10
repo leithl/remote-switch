@@ -384,8 +384,14 @@ def _handle(environ):
         '<button type="submit" name="fan_state" class="btn btn-success btn-lg" value="1">turn on</button>'
     )
 
-    # --- Ambient label ---
-    _, _, ambient_label = config.get_location()
+    # --- Ambient label + current ambient temp ---
+    amb_lat, amb_lon, ambient_label = config.get_location()
+    ambient_display = ""
+    if enable_temp and amb_lat and amb_lon:
+        amb_c = config.fetch_ambient(amb_lat, amb_lon)
+        if amb_c is not None:
+            amb_f = amb_c * 1.8 + 32
+            ambient_display = f"{amb_c:.1f} \u00b0C | {amb_f:.1f} \u00b0F"
 
     # --- Pending schedules ---
     conn = config.get_db()
@@ -574,6 +580,7 @@ def _handle(environ):
         fan_header_class=fan_header_class,
         fan_toggle_btn=fan_toggle_btn,
         temp_display=temp_display,
+        ambient_display=ambient_display,
         ambient_label=ambient_label,
         range=range_param,
         chart_title=chart_title,

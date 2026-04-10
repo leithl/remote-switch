@@ -180,7 +180,7 @@ def compute_bucketed(rows, cutoff, chart_end):
     per-minute readings into 15-min buckets before Python sees them.
 
     Args:
-        rows:      Iterable of (bucket_epoch, avg_temp_c, avg_ambient_c, avg_heater_state)
+        rows:      Iterable of (bucket_epoch, avg_temp_c, avg_ambient_c, avg_heater_state, avg_fan_state)
                    as returned by config.query_bucketed(), sorted by bucket_epoch.
         cutoff:    Start epoch (inclusive).
         chart_end: End epoch (exclusive).
@@ -190,6 +190,7 @@ def compute_bucketed(rows, cutoff, chart_end):
         ambient_data    list of {x: epoch_ms, y: temp_f}  (4-bucket rolling avg)
         heater_ranges   list of {xMin: epoch_ms, xMax: epoch_ms}
         cold_ranges     list of {xMin: epoch_ms, xMax: epoch_ms}
+        fan_ranges      list of {xMin: epoch_ms, xMax: epoch_ms}
     """
     BUCKET_SECS = 900  # 15 min
 
@@ -197,14 +198,17 @@ def compute_bucketed(rows, cutoff, chart_end):
     ambient_data = []
     heater_ranges = []
     cold_ranges = []
+    fan_ranges = []
 
     amb_window = deque(maxlen=4)
     in_heater = False
     in_cold = False
+    in_fan = False
     heater_start = heater_last = 0
     cold_start = cold_last = 0
+    fan_start = fan_last = 0
 
-    for b, avg_temp_c, avg_ambient_c, avg_heater in rows:
+    for b, avg_temp_c, avg_ambient_c, avg_heater, avg_fan in rows:
         if b < cutoff or b >= chart_end:
             continue
 
@@ -233,6 +237,18 @@ def compute_bucketed(rows, cutoff, chart_end):
             if on:
                 heater_last = b
 
+        # Fan ranges (avg_fan > 0 means fan was on for part of this bucket)
+        if avg_fan is not None:
+            fan_on = avg_fan > 0
+            if fan_on and not in_fan:
+                fan_start = b
+                in_fan = True
+            elif not fan_on and in_fan:
+                fan_ranges.append({"xMin": fan_start * 1000, "xMax": (fan_last + BUCKET_SECS) * 1000})
+                in_fan = False
+            if fan_on:
+                fan_last = b
+
         # Ambient (4-bucket rolling avg)
         if avg_ambient_c is not None:
             amb_window.append(avg_ambient_c * 1.8 + 32)
@@ -243,10 +259,13 @@ def compute_bucketed(rows, cutoff, chart_end):
         heater_ranges.append({"xMin": heater_start * 1000, "xMax": (heater_last + BUCKET_SECS) * 1000})
     if in_cold:
         cold_ranges.append({"xMin": cold_start * 1000, "xMax": (cold_last + BUCKET_SECS) * 1000})
+    if in_fan:
+        fan_ranges.append({"xMin": fan_start * 1000, "xMax": (fan_last + BUCKET_SECS) * 1000})
 
     return {
         "chart_data": chart_data,
         "ambient_data": ambient_data,
         "heater_ranges": heater_ranges,
         "cold_ranges": cold_ranges,
+        "fan_ranges": fan_ranges,
     }

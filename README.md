@@ -27,8 +27,11 @@ Add to `/boot/config.txt`:
 
 ```
 # https://forums.raspberrypi.com/viewtopic.php?f=117&t=208748
-# set GPIO pin 17 as output, default low
+# set GPIO pin 17 as output, default low (heater relay)
 gpio=17=op,dl
+
+# exhaust fan relay — must match FAN_GPIO_PIN in config.py
+gpio=27=op,dl
 
 # (optional) enable 1-wire for DS18B20 temp probe
 dtoverlay=w1-gpio
@@ -38,6 +41,7 @@ Add to `/etc/rc.local` (before `exit 0`):
 
 ```
 echo "17" > /sys/class/gpio/export
+echo "27" > /sys/class/gpio/export
 ```
 
 ### 2. LTE Modem

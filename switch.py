@@ -290,6 +290,21 @@ def _handle(environ):
         config.write_gpio(state)
         _redirect("switch.py")
 
+    # --- Fan manual override ---
+    fan_state_raw = qs.get("fan_state", "")
+    if fan_state_raw in ("0", "1"):
+        config.write_fan_mode("on" if fan_state_raw == "1" else "off")
+        try:
+            config.write_fan_gpio(fan_state_raw)
+        except (PermissionError, OSError):
+            pass
+        _redirect("switch.py")
+
+    fan_mode_raw = qs.get("fan_mode", "")
+    if fan_mode_raw == "auto":
+        config.write_fan_mode("auto")
+        _redirect("switch.py")
+
     # --- Schedule add ---
     now_epoch = int(datetime.now().timestamp())
     sched_msg = Markup("")
@@ -358,6 +373,17 @@ def _handle(environ):
             temp_f = temp_c * 1.8 + 32
             temp_display = f"{temp_c:.1f} \u00b0C | {temp_f:.1f} \u00b0F"
 
+    # --- Fan state ---
+    fan_on = config.read_fan_gpio() == "1"
+    fan_mode = config.read_fan_mode()
+    fan_status = "on" if fan_on else "off"
+    fan_header_class = "text-bg-info" if fan_on else "text-bg-secondary"
+    fan_toggle_btn = Markup(
+        '<button type="submit" name="fan_state" class="btn btn-danger btn-lg" value="0">turn off</button>'
+        if fan_on else
+        '<button type="submit" name="fan_state" class="btn btn-success btn-lg" value="1">turn on</button>'
+    )
+
     # --- Ambient label ---
     _, _, ambient_label = config.get_location()
 
@@ -411,6 +437,7 @@ def _handle(environ):
     chart_data = []
     heater_ranges = []
     cold_ranges = []
+    fan_ranges = []
     ambient_data = []
     combined_stats_rows = []
     runtime_rows = []
@@ -429,6 +456,7 @@ def _handle(environ):
                 chart_data = cached_result.get("chart_data", [])
                 heater_ranges = cached_result.get("heater_ranges", [])
                 cold_ranges = cached_result.get("cold_ranges", [])
+                fan_ranges = cached_result.get("fan_ranges", [])
                 ambient_data = cached_result.get("ambient_data", [])
                 chart_from_cache = True
 
@@ -438,6 +466,7 @@ def _handle(environ):
             chart_data = live_result["chart_data"]
             heater_ranges = live_result["heater_ranges"]
             cold_ranges = live_result["cold_ranges"]
+            fan_ranges = live_result.get("fan_ranges", [])
             ambient_data = live_result["ambient_data"]
 
         # Build per-month stats (13 months) with batch queries
@@ -539,6 +568,11 @@ def _handle(environ):
         status=status,
         header_class=header_class,
         toggle_btn=toggle_btn,
+        fan_on=fan_on,
+        fan_status=fan_status,
+        fan_mode=fan_mode,
+        fan_header_class=fan_header_class,
+        fan_toggle_btn=fan_toggle_btn,
         temp_display=temp_display,
         ambient_label=ambient_label,
         range=range_param,
@@ -546,6 +580,7 @@ def _handle(environ):
         chart_data=chart_data,
         heater_ranges=heater_ranges,
         cold_ranges=cold_ranges,
+        fan_ranges=fan_ranges,
         ambient_data=ambient_data,
         combined_stats_rows=combined_stats_rows,
         runtime_rows=runtime_rows,

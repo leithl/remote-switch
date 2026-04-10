@@ -95,9 +95,11 @@ def do_rollup():
             cold_line = f"Cold: {ts['cold_hrs']:.1f} hours at or below 48\u00b0F"
         if rs:
             runtime_line = (
-                f"Total: {rs['on_hrs']:.1f} hours, "
-                f"Avg: {rs['avg_hrs_day']:.1f} hours/day"
+                f"Heater: {rs['on_hrs']:.1f} hours total, "
+                f"{rs['avg_hrs_day']:.1f} hours/day"
             )
+            if "fan_on_hrs" in rs:
+                runtime_line += f"; Fan: {rs['fan_on_hrs']:.1f} hours"
             coverage_line = (
                 f"Temp: {rs['temp_coverage_pct']:.1f}%, "
                 f"Heater: {rs['heater_coverage_pct']:.1f}%"

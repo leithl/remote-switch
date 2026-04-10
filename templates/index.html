@@ -54,22 +54,6 @@
 </div>
 </div>
 
-{% if runtime_rows %}
-<div class="card mb-3">
-<div class="card-header"><h5 class="mb-0">Heater Runtime</h5></div>
-<div class="card-body">
-<div class="table-responsive">
-<table class="table table-sm table-striped mb-0">
-<thead><tr><th>Month</th><th>Total Hours</th><th>Avg Hours/Day</th></tr></thead>
-<tbody>
-{% for row in runtime_rows %}{{ row }}{% endfor %}
-</tbody>
-</table>
-</div>
-</div>
-</div>
-{% endif %}
-
 {% if enable_temp %}
 <div class="card mb-3">
 <div class="card-header"><h5 class="mb-0">{{ chart_title }}</h5></div>
@@ -97,7 +81,7 @@
 <div class="card-body">
 <div class="table-responsive">
 <table class="table table-sm table-striped table-hover mb-0">
-<thead><tr><th>Month</th><th>Avg (&deg;F / &deg;C)</th><th>Min (&deg;F / &deg;C)</th><th>Max (&deg;F / &deg;C)</th><th>Hours &le; 48&deg;F</th></tr></thead>
+<thead><tr><th>Month</th><th>Avg (&deg;F / &deg;C)</th><th>Min (&deg;F / &deg;C)</th><th>Max (&deg;F / &deg;C)</th><th>Hrs &le; 48&deg;F</th><th>Heater</th><th>Fan</th></tr></thead>
 <tbody>
 {% for row in combined_stats_rows %}{{ row }}{% endfor %}
 </tbody>

@@ -31,6 +31,14 @@ W1_GLOB     = "/sys/bus/w1/devices/28-*/w1_slave"
 ENABLE_TEMP = True  # set to False to disable all temperature features
 
 # ---------------------------------------------------------------------------
+# Exhaust fan
+# ---------------------------------------------------------------------------
+FAN_GPIO_PIN         = "27"   # GPIO pin for exhaust fan relay
+FAN_TEMP_THRESHOLD_C = 26.67  # 80°F — hangar must be at or above this to run fan
+FAN_MARGIN_C         = 2.78   # 5°F — ambient must be this much cooler than hangar
+FAN_MODE_FILE        = DISK_DB_DIR / "fan_mode"  # persists 'auto' / 'on' / 'off'
+
+# ---------------------------------------------------------------------------
 # .env loading
 # ---------------------------------------------------------------------------
 
@@ -132,6 +140,37 @@ def write_gpio(value):
     _gpio_path().write_text(str(value))
 
 
+def _fan_gpio_path():
+    return Path(f"/sys/class/gpio/gpio{FAN_GPIO_PIN}/value")
+
+
+def read_fan_gpio():
+    """Return '1' or '0'. Returns '0' if fan GPIO sysfs path absent."""
+    p = _fan_gpio_path()
+    if p.exists():
+        return p.read_text().strip()
+    return "0"
+
+
+def write_fan_gpio(value):
+    """Write '0' or '1' to fan GPIO sysfs. Raises PermissionError if not writable."""
+    _fan_gpio_path().write_text(str(value))
+
+
+def read_fan_mode():
+    """Return current fan mode: 'auto', 'on', or 'off'. Defaults to 'auto'."""
+    try:
+        return FAN_MODE_FILE.read_text().strip()
+    except OSError:
+        return "auto"
+
+
+def write_fan_mode(mode):
+    """Persist fan mode ('auto', 'on', 'off') to disk."""
+    DISK_DB_DIR.mkdir(parents=True, exist_ok=True)
+    FAN_MODE_FILE.write_text(mode)
+
+
 # ---------------------------------------------------------------------------
 # DS18B20 temperature probe
 # ---------------------------------------------------------------------------
@@ -203,7 +242,8 @@ CREATE TABLE IF NOT EXISTS readings (
     epoch         INTEGER PRIMARY KEY,
     temp_c        REAL,
     heater_state  INTEGER,
-    ambient_c     REAL
+    ambient_c     REAL,
+    fan_state     INTEGER
 );
 """
 
@@ -232,6 +272,10 @@ def get_ram_db():
     conn = sqlite3.connect(str(RAM_DB))
     conn.execute("PRAGMA journal_mode=MEMORY")
     conn.executescript(_RAM_SCHEMA)
+    try:
+        conn.execute("ALTER TABLE readings ADD COLUMN fan_state INTEGER")
+    except Exception:
+        pass  # column already exists
     return conn
 
 
@@ -248,6 +292,10 @@ def get_db():
     conn = sqlite3.connect(str(DISK_DB))
     conn.execute("PRAGMA journal_mode=DELETE")
     conn.executescript(_DISK_SCHEMA)
+    try:
+        conn.execute("ALTER TABLE readings ADD COLUMN fan_state INTEGER")
+    except Exception:
+        pass  # column already exists
 
     if RAM_DB.exists():
         conn.execute(f"ATTACH DATABASE '{RAM_DB}' AS ram")
@@ -256,9 +304,14 @@ def get_db():
                 epoch         INTEGER PRIMARY KEY,
                 temp_c        REAL,
                 heater_state  INTEGER,
-                ambient_c     REAL
+                ambient_c     REAL,
+                fan_state     INTEGER
             );
         """)
+        try:
+            conn.execute("ALTER TABLE ram.readings ADD COLUMN fan_state INTEGER")
+        except Exception:
+            pass  # column already exists
 
     return conn
 
@@ -300,16 +353,16 @@ def query_bucketed(conn, since_epoch, until_epoch, bucket_secs=900):
     bs = bucket_secs
     select = (
         f"(epoch/{bs})*{bs},"
-        " AVG(temp_c), AVG(ambient_c), AVG(heater_state)"
+        " AVG(temp_c), AVG(ambient_c), AVG(heater_state), AVG(fan_state)"
     )
     group = f"GROUP BY (epoch/{bs})*{bs} ORDER BY (epoch/{bs})*{bs}"
     if _has_ram(conn):
         sql = (
             f"SELECT {select} FROM ("
-            "SELECT epoch, temp_c, heater_state, ambient_c FROM readings"
+            "SELECT epoch, temp_c, heater_state, ambient_c, fan_state FROM readings"
             " WHERE epoch >= ? AND epoch < ?"
             " UNION"
-            " SELECT epoch, temp_c, heater_state, ambient_c FROM ram.readings"
+            " SELECT epoch, temp_c, heater_state, ambient_c, fan_state FROM ram.readings"
             " WHERE epoch >= ? AND epoch < ?"
             f") {group}"
         )

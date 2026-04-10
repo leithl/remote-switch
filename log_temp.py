@@ -183,12 +183,46 @@ def do_log():
         fcntl.flock(lock_file, fcntl.LOCK_UN)
         lock_file.close()
 
+    # Fan auto-logic
+    fan_state = int(config.read_fan_gpio())
+    fan_mode = config.read_fan_mode()
+
+    if fan_mode == "auto":
+        if temp_c is not None and ambient_c is not None:
+            should_on = (
+                temp_c >= config.FAN_TEMP_THRESHOLD_C and
+                (temp_c - ambient_c) >= config.FAN_MARGIN_C
+            )
+        else:
+            should_on = False
+        desired = "1" if should_on else "0"
+        if desired != str(fan_state):
+            try:
+                config.write_fan_gpio(desired)
+                fan_state = int(desired)
+            except (PermissionError, OSError):
+                pass
+    elif fan_mode == "on":
+        if fan_state != 1:
+            try:
+                config.write_fan_gpio("1")
+                fan_state = 1
+            except (PermissionError, OSError):
+                pass
+    elif fan_mode == "off":
+        if fan_state != 0:
+            try:
+                config.write_fan_gpio("0")
+                fan_state = 0
+            except (PermissionError, OSError):
+                pass
+
     # Write reading to RAM db
     ram_conn = config.get_ram_db()
     ram_conn.execute(
-        "INSERT OR REPLACE INTO readings (epoch, temp_c, heater_state, ambient_c) "
-        "VALUES (?, ?, ?, ?)",
-        (now_epoch, temp_c, heater_state, ambient_c)
+        "INSERT OR REPLACE INTO readings (epoch, temp_c, heater_state, ambient_c, fan_state) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (now_epoch, temp_c, heater_state, ambient_c, fan_state)
     )
     ram_conn.commit()
     ram_conn.close()

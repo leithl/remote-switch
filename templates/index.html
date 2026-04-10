@@ -35,6 +35,25 @@
 </div>
 </div>
 
+<div class="card mb-3">
+<div class="card-header {{ fan_header_class }}">
+  <h4>Exhaust Fan</h4>
+</div>
+<div class="card-body">
+<h5 class="card-title">Fan Status: <b>{{ fan_status }}</b> &nbsp;&middot;&nbsp; Mode: <b>{{ fan_mode }}</b></h5>
+<form action="switch.py" method="GET" class="d-inline me-2">
+<p class="mb-2">{{ fan_toggle_btn }}
+{% if fan_mode != 'auto' %}
+<button type="submit" name="fan_mode" value="auto" class="btn btn-outline-secondary ms-2">Set to Auto</button>
+{% endif %}
+</p>
+</form>
+{% if fan_mode == 'auto' %}
+<p class="text-muted small mb-0">Auto: runs when hangar &ge; 80&deg;F and outdoor is &ge; 5&deg;F cooler.</p>
+{% endif %}
+</div>
+</div>
+
 {% if runtime_rows %}
 <div class="card mb-3">
 <div class="card-header"><h5 class="mb-0">Heater Runtime</h5></div>
@@ -62,6 +81,7 @@
     <a href="switch.py?range=7d" class="btn btn-sm {{ 'btn-primary' if range == '7d' else 'btn-outline-primary' }}">7 Days</a>
     <a href="switch.py?range=30d" class="btn btn-sm {{ 'btn-primary' if range == '30d' else 'btn-outline-primary' }}">30 Days</a>
     <span class="ms-3 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(220,53,69,0.3);vertical-align:middle"></span> Heater on</span>
+    <span class="ms-2 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(13,110,253,0.3);vertical-align:middle"></span> Fan on</span>
     <span class="ms-2 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(255,152,0,0.3);vertical-align:middle"></span> &le; 48&deg;F</span>
     <span class="ms-2 small text-muted"><span style="display:inline-block;width:20px;border-top:2px solid rgb(34,197,94);vertical-align:middle"></span> {{ ambient_label }}</span>
   </div>
@@ -127,24 +147,30 @@
 var data = {{ chart_data | tojson }};
 var heaterRanges = {{ heater_ranges | tojson }};
 var coldRanges = {{ cold_ranges | tojson }};
+var fanRanges = {{ fan_ranges | tojson }};
 var ambientData = {{ ambient_data | tojson }};
-var heaterData = data.map(function(d) {
-  var bucketEnd = d.x + 900000;
-  for (var j = 0; j < heaterRanges.length; j++) {
-    if (d.x < heaterRanges[j].xMax && bucketEnd > heaterRanges[j].xMin) return {x: d.x, y: d.y};
-  }
-  return {x: d.x, y: null};
-});
-for (var i = 0; i < heaterData.length; i++) {
-  if (heaterData[i].y !== null) {
-    var hasPrev = i > 0 && heaterData[i-1].y !== null;
-    var hasNext = i < heaterData.length - 1 && heaterData[i+1].y !== null;
-    if (!hasPrev && !hasNext) {
-      if (i < heaterData.length - 1) heaterData[i+1] = {x: data[i+1].x, y: data[i+1].y};
-      else if (i > 0) heaterData[i-1] = {x: data[i-1].x, y: data[i-1].y};
+function buildRangeData(data, ranges) {
+  var out = data.map(function(d) {
+    var bucketEnd = d.x + 900000;
+    for (var j = 0; j < ranges.length; j++) {
+      if (d.x < ranges[j].xMax && bucketEnd > ranges[j].xMin) return {x: d.x, y: d.y};
+    }
+    return {x: d.x, y: null};
+  });
+  for (var i = 0; i < out.length; i++) {
+    if (out[i].y !== null) {
+      var hasPrev = i > 0 && out[i-1].y !== null;
+      var hasNext = i < out.length - 1 && out[i+1].y !== null;
+      if (!hasPrev && !hasNext) {
+        if (i < out.length - 1) out[i+1] = {x: data[i+1].x, y: data[i+1].y};
+        else if (i > 0) out[i-1] = {x: data[i-1].x, y: data[i-1].y};
+      }
     }
   }
+  return out;
 }
+var heaterData = buildRangeData(data, heaterRanges);
+var fanData = buildRangeData(data, fanRanges);
 var annotations = {};
 coldRanges.forEach(function(r, i) {
   annotations['c' + i] = {
@@ -179,6 +205,14 @@ if (data.length > 0) {
         data: heaterData,
         borderColor: 'transparent',
         backgroundColor: 'rgba(220, 53, 69, 0.25)',
+        fill: 'origin',
+        pointRadius: 0,
+        tension: 0.3,
+        spanGaps: false
+      }, {
+        data: fanData,
+        borderColor: 'transparent',
+        backgroundColor: 'rgba(13, 110, 253, 0.2)',
         fill: 'origin',
         pointRadius: 0,
         tension: 0.3,

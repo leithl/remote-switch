@@ -75,6 +75,7 @@
 <div class="card-header"><h5 class="mb-0">{{ chart_title }}</h5></div>
 <div class="card-body">
   <p class="mb-1"><strong>Hangar:</strong> {{ temp_display }}</p>
+  {% if ambient_display %}<p class="mb-1"><strong>Outdoor:</strong> {{ ambient_display }}</p>{% endif %}
   <p class="mb-1 small text-muted" id="metar" style="display:none;cursor:pointer" onclick="toggleWxDecode(this)"></p>
   <p class="mb-2 small text-muted" id="taf" style="display:none;white-space:pre-wrap;cursor:pointer" onclick="toggleWxDecode(this)"></p>
   <div class="mb-2">

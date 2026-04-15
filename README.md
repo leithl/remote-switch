@@ -184,6 +184,26 @@ The ambient temp is fetched every 15 minutes (cached in RAM between fetches) to 
 
 ---
 
+## Adding the Exhaust Fan to an Existing Install
+
+If you already have the heater controller running and want to add fan control, `git pull` alone is not enough — the fan relay needs its GPIO pin configured in the OS:
+
+1. Add to `/boot/config.txt`:
+   ```
+   gpio=27=op,dl
+   ```
+
+2. Add to `/etc/rc.local` (before `exit 0`):
+   ```
+   echo "27" > /sys/class/gpio/export
+   ```
+
+3. Reboot.
+
+Without the reboot, `/sys/class/gpio/gpio27/value` won't exist and the UI button will appear to work (no error shown) but the relay won't switch. The DB migration (`fan_state` column) happens automatically on first cron tick — no manual SQL needed.
+
+---
+
 ## Optional: Monthly Email Summaries
 
 Add to `.env`:

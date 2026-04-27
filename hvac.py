@@ -114,16 +114,24 @@ def _msmart_fans():
     }
 
 
-def _open_device():
+async def _open_device():
+    """Construct + authenticate an AirConditioner instance against the dongle.
+
+    msmart-ng 2025.12.0 makes authenticate() async (it performs a handshake
+    with the dongle), so this whole helper is async and lives inside the
+    async closures in get_state / set_state.
+    """
     from msmart.device import AirConditioner as AC
     e = config.load_env()
     dev = AC(
         ip=e["HVAC_DONGLE_IP"].strip(),
-        port=LAN_PORT,
         device_id=int(e["HVAC_DEVICE_ID"].strip()),
+        port=LAN_PORT,
     )
-    dev.token = e["HVAC_TOKEN"].strip()
-    dev.key   = e["HVAC_KEY"].strip()
+    await dev.authenticate(
+        e["HVAC_TOKEN"].strip(),
+        e["HVAC_KEY"].strip(),
+    )
     return dev
 
 
@@ -225,7 +233,7 @@ def get_state(force=False):
 
     try:
         async def _fetch():
-            dev = _open_device()
+            dev = await _open_device()
             await dev.refresh()
             return _device_to_dict(dev)
 
@@ -272,7 +280,7 @@ def set_state(power=None, mode=None, target_f=None, fan_speed=None):
 
     try:
         async def _apply():
-            dev = _open_device()
+            dev = await _open_device()
             await dev.refresh()
 
             if requested["power"] is not None:

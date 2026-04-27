@@ -61,62 +61,66 @@ def _confirm_overwrite():
 
 
 # ---------------------------------------------------------------------------
-# Discovery
+# Discovery + cloud authentication (single call)
 # ---------------------------------------------------------------------------
+#
+# msmart-ng 2025.12.0's Discover.discover() does the cloud handshake itself
+# when given account+password (auto_connect=True is the default). The returned
+# devices come back with .token and .key already populated — no separate
+# get_token() round-trip needed.
 
-async def _discover():
+async def _discover_authenticated():
     from msmart.discover import Discover
-    print("Scanning LAN for Midea/Durastar dongle (UDP broadcast, ~5s)...")
-    devices = await Discover.discover()
+
+    print("Sign in with NetHome Plus credentials.")
+    print("Use the SAME account you paired the dongle with on the phone app.")
+    print("(NOT SmartHome — see msmart-ng issue #201.)")
+    email    = input("NetHome Plus email: ").strip()
+    password = getpass.getpass("NetHome Plus password: ")
+
+    print("\nDiscovering & authenticating dongle (UDP broadcast + cloud handshake, ~10s)...")
+    try:
+        devices = await Discover.discover(
+            account=email,
+            password=password,
+            auto_connect=True,
+        )
+    except Exception as e:
+        _die(f"Discovery / cloud auth failed: {e}\n"
+             "If credentials look right but auth still fails, you may be on a "
+             "SmartHome account — re-register via NetHome Plus and try again.")
+
     if not devices:
-        _die("No devices found. Check that the dongle is powered, paired via "
-             "NetHome Plus, and on the same subnet as the Pi.")
+        _die("No devices discovered. Check that the dongle is powered, paired "
+             "via NetHome Plus, and on the same subnet as the Pi.")
     return devices
+
+
+def _device_type_str(d):
+    """Format the device type for display — handles enum or int."""
+    t = getattr(d, "type", None)
+    if t is None:
+        return "?"
+    if isinstance(t, int):
+        return f"0x{t:02x}"
+    return str(t)
 
 
 def _pick_device(devices):
     devices = list(devices)
     if len(devices) == 1:
         d = devices[0]
-        print(f"Found 1 device: id={d.id} ip={d.ip} type=0x{d.type:02x}")
+        print(f"Found 1 device: id={d.id} ip={d.ip} type={_device_type_str(d)}")
         return d
     print(f"Found {len(devices)} devices:")
     for i, d in enumerate(devices):
-        print(f"  [{i}] id={d.id} ip={d.ip} type=0x{d.type:02x}")
+        print(f"  [{i}] id={d.id} ip={d.ip} type={_device_type_str(d)}")
     while True:
         ans = input(f"Pick one [0-{len(devices)-1}]: ").strip()
         try:
             return devices[int(ans)]
         except (ValueError, IndexError):
             print("Invalid choice.")
-
-
-# ---------------------------------------------------------------------------
-# Cloud token fetch (NetHome Plus)
-# ---------------------------------------------------------------------------
-
-async def _fetch_token_key(device_id):
-    from msmart.cloud import Cloud
-
-    print("\nFetching local token+key from NetHome Plus cloud (one-time).")
-    print("Use the SAME credentials you used in the NetHome Plus phone app.")
-    email    = input("NetHome Plus email: ").strip()
-    password = getpass.getpass("NetHome Plus password: ")
-
-    cloud = Cloud(email, password, account="NetHomePlus")
-    try:
-        await cloud.login()
-    except Exception as e:
-        _die(f"Cloud login failed: {e}\n"
-             "Verify credentials. If you registered through SmartHome, that "
-             "account type currently fails — re-register via NetHome Plus.")
-
-    try:
-        token, key = await cloud.get_token(str(device_id))
-    except Exception as e:
-        _die(f"Token fetch failed for device {device_id}: {e}")
-
-    return token, key
 
 
 # ---------------------------------------------------------------------------
@@ -177,11 +181,14 @@ async def _main_async():
     _check_msmart_installed()
     _confirm_overwrite()
 
-    devices = await _discover()
+    devices = await _discover_authenticated()
     device  = _pick_device(devices)
 
-    token, key = await _fetch_token_key(device.id)
-    _update_env(device.ip, device.id, token, key)
+    if not device.token or not device.key:
+        _die("Device discovered but no token/key returned. The cloud auth step "
+             "didn't populate credentials — try re-pairing on NetHome Plus.")
+
+    _update_env(device.ip, device.id, device.token, device.key)
 
     await _verify()
     print("\nDone. The WSGI app will pick up the new .env on its next request.")

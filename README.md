@@ -229,7 +229,7 @@ Midea **US-OSK105** WiFi USB dongle (~$30 on Amazon: ASIN [B0GVSPFK1P](https://w
    sudo pip install msmart-ng --break-system-packages
    ```
    The `--break-system-packages` flag is needed on Bookworm and later (PEP 668). For this project's deployment model (system Python under mod_wsgi + root cron) it's the pragmatic choice — a venv would require reconfiguring the WSGI daemon and cron paths.
-4. **Run the setup helper** — it discovers the dongle on the LAN, prompts for your NetHome Plus credentials, fetches the local `token` + `key`, writes the four `HVAC_*` keys to `.env`, and verifies with a refresh:
+4. **Run the setup helper** — it prompts for your NetHome Plus credentials, then in a single round-trip discovers the dongle on the LAN and authenticates it via Midea's cloud (returning the local `token` + `key`). The four `HVAC_*` keys are then written to `.env` and the script verifies with a live refresh:
    ```bash
    sudo python3 /usr/lib/cgi-bin/remote-switch/setup_hvac.py
    ```
@@ -253,8 +253,9 @@ A software preset = Heat mode / 60°F (Midea's heat-mode minimum) / Low fan. msm
 If someone uses the physical IR remote while you're away, the dongle's reported state diverges from what the web UI last commanded. When this happens, the HVAC card surfaces both the **Reported** state (what the unit is doing now) and **Last commanded** (what was last sent from the web), so you can see at a glance that the physical remote was used.
 
 ### Troubleshooting
-- **`setup_hvac.py` finds no devices.** Check the dongle is powered (LED inside the indoor unit), paired via NetHome Plus, and on the same subnet as the Pi.
-- **`Cloud login failed`** during setup. You're probably on a SmartHome account — re-register via NetHome Plus and retry.
+- **`setup_hvac.py` finds no devices.** Check the dongle is powered (LED inside the indoor unit), paired via NetHome Plus, and on the same subnet as the Pi (hangar WiFi often runs an isolated guest network — make sure the Pi and the dongle are on the same one).
+- **Setup fails at "Discovery / cloud auth failed".** Most often a SmartHome vs NetHome Plus account mismatch — re-register via NetHome Plus and retry. If that's not it, double-check the password (case-sensitive) and that you can sign in to the NetHome Plus app on the phone with the same credentials.
+- **`ImportError: cannot import name '...' from 'msmart...'`.** msmart-ng's API has shifted between releases. The wrappers in this repo were verified against `msmart-ng==2025.12.0`. If you're on a much newer version and an import name has moved, see CLAUDE.md ("msmart-ng API surface") for the symbols to grep and pin a working version with `sudo pip install msmart-ng==2025.12.0`.
 - **HVAC card shows "stale Xs ago".** The dongle isn't replying. Check the indoor unit has power, the dongle hasn't fallen out, and the LAN IP hasn't changed (DHCP). If the IP changed, re-run `setup_hvac.py` to refresh `.env`.
 - **HVAC card shows "Not configured" after pairing.** Verify all four `HVAC_*` keys are present and non-empty in `.env`.
 

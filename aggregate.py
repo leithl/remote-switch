@@ -10,11 +10,12 @@ from statistics import mean
 
 def compute(rows, cutoff, chart_end):
     """
-    Aggregate temperature, heater, and ambient readings into chart-ready data.
+    Aggregate temperature, heater, ambient, fan, and HVAC readings into chart-ready data.
 
     Args:
-        rows:      Iterable of (epoch, temp_c, heater_state, ambient_c).
-                   Any value except epoch may be None.
+        rows:      Iterable of (epoch, temp_c, heater_state, ambient_c, fan_state, ac_state).
+                   Any value except epoch may be None. Older 5-column rows still parse
+                   (ac_state defaults to None).
         cutoff:    Start epoch (inclusive). Rows before this are ignored.
         chart_end: End epoch (exclusive). Rows at/after this are ignored.
 
@@ -22,6 +23,7 @@ def compute(rows, cutoff, chart_end):
         chart_data      list of {x: epoch_ms, y: temp_f}  (15-min bucket avg)
         ambient_data    list of {x: epoch_ms, y: temp_f}  (15-min bucket, 4-bucket rolling avg)
         heater_ranges   list of {xMin: epoch_ms, xMax: epoch_ms}
+        hvac_ranges     list of {xMin: epoch_ms, xMax: epoch_ms}  (any HVAC mode active)
         cold_ranges     list of {xMin: epoch_ms, xMax: epoch_ms}  (temp <= 48°F / 8.89°C)
         temp_stats      dict or None
         ambient_stats   dict or None
@@ -30,25 +32,35 @@ def compute(rows, cutoff, chart_end):
     chart_buckets = {}   # bucket_epoch -> [temp_c]
     amb_buckets = {}     # bucket_epoch -> [ambient_c]
     heater_ranges = []
+    hvac_ranges = []
     cold_ranges = []
 
     temp_vals = []
     amb_vals = []
     on_mins = 0
     fan_on_mins = 0
+    hvac_on_mins = 0
     total_temp_mins = 0
     total_heater_mins = 0
     total_fan_mins = 0
+    total_hvac_mins = 0
 
     in_heater = False
+    in_hvac = False
     in_cold = False
     heater_start = heater_last = 0
+    hvac_start = hvac_last = 0
     cold_start = cold_last = 0
 
     last_epoch = None
 
     for row in sorted(rows, key=lambda r: r[0]):
-        epoch, temp_c, heater_state, ambient_c, fan_state = row[0], row[1], row[2], row[3], row[4] if len(row) > 4 else None
+        epoch       = row[0]
+        temp_c      = row[1]
+        heater_state = row[2]
+        ambient_c   = row[3]
+        fan_state   = row[4] if len(row) > 4 else None
+        ac_state    = row[5] if len(row) > 5 else None
 
         if epoch < cutoff or epoch >= chart_end:
             continue
@@ -99,6 +111,24 @@ def compute(rows, cutoff, chart_end):
             if fan_state == 1:
                 fan_on_mins += 1
 
+        # --- HVAC state (any non-zero mode = on) ---
+        if ac_state is not None:
+            total_hvac_mins += 1
+            hvac_on = ac_state > 0
+            if hvac_on:
+                hvac_on_mins += 1
+            if hvac_on and not in_hvac:
+                hvac_start = epoch
+                in_hvac = True
+            elif not hvac_on and in_hvac:
+                hvac_ranges.append({
+                    "xMin": hvac_start * 1000,
+                    "xMax": (hvac_last + 60) * 1000,
+                })
+                in_hvac = False
+            if hvac_on:
+                hvac_last = epoch
+
         # --- ambient ---
         if ambient_c is not None:
             amb_buckets.setdefault(b, []).append(ambient_c)
@@ -109,6 +139,11 @@ def compute(rows, cutoff, chart_end):
         heater_ranges.append({
             "xMin": heater_start * 1000,
             "xMax": (heater_last + 60) * 1000,
+        })
+    if in_hvac:
+        hvac_ranges.append({
+            "xMin": hvac_start * 1000,
+            "xMax": (hvac_last + 60) * 1000,
         })
     if in_cold:
         cold_ranges.append({
@@ -170,11 +205,14 @@ def compute(rows, cutoff, chart_end):
         }
         if total_fan_mins > 0:
             runtime_stats["fan_on_hrs"] = round(fan_on_mins / 60, 1)
+        if total_hvac_mins > 0:
+            runtime_stats["hvac_on_hrs"] = round(hvac_on_mins / 60, 1)
 
     return {
         "chart_data": chart_data,
         "ambient_data": ambient_data,
         "heater_ranges": heater_ranges,
+        "hvac_ranges": hvac_ranges,
         "cold_ranges": cold_ranges,
         "temp_stats": temp_stats,
         "ambient_stats": ambient_stats,
@@ -190,8 +228,11 @@ def compute_bucketed(rows, cutoff, chart_end):
     per-minute readings into 15-min buckets before Python sees them.
 
     Args:
-        rows:      Iterable of (bucket_epoch, avg_temp_c, avg_ambient_c, avg_heater_state, avg_fan_state)
+        rows:      Iterable of (bucket_epoch, avg_temp_c, avg_ambient_c, avg_heater_state,
+                                avg_fan_state, avg_ac_active)
                    as returned by config.query_bucketed(), sorted by bucket_epoch.
+                   avg_ac_active is the fraction of the bucket the HVAC was in any
+                   non-off mode (binary representation, see config.query_bucketed).
         cutoff:    Start epoch (inclusive).
         chart_end: End epoch (exclusive).
 
@@ -199,6 +240,7 @@ def compute_bucketed(rows, cutoff, chart_end):
         chart_data      list of {x: epoch_ms, y: temp_f}
         ambient_data    list of {x: epoch_ms, y: temp_f}  (4-bucket rolling avg)
         heater_ranges   list of {xMin: epoch_ms, xMax: epoch_ms}
+        hvac_ranges     list of {xMin: epoch_ms, xMax: epoch_ms}
         cold_ranges     list of {xMin: epoch_ms, xMax: epoch_ms}
         fan_ranges      list of {xMin: epoch_ms, xMax: epoch_ms}
     """
@@ -207,18 +249,29 @@ def compute_bucketed(rows, cutoff, chart_end):
     chart_data = []
     ambient_data = []
     heater_ranges = []
+    hvac_ranges = []
     cold_ranges = []
     fan_ranges = []
 
     amb_window = deque(maxlen=4)
     in_heater = False
+    in_hvac = False
     in_cold = False
     in_fan = False
     heater_start = heater_last = 0
+    hvac_start = hvac_last = 0
     cold_start = cold_last = 0
     fan_start = fan_last = 0
 
-    for b, avg_temp_c, avg_ambient_c, avg_heater, avg_fan in rows:
+    for row in rows:
+        # Older bucketed rows may not include avg_ac_active — tolerate 5-tuple input
+        b = row[0]
+        avg_temp_c    = row[1]
+        avg_ambient_c = row[2]
+        avg_heater    = row[3]
+        avg_fan       = row[4]
+        avg_ac_active = row[5] if len(row) > 5 else None
+
         if b < cutoff or b >= chart_end:
             continue
 
@@ -259,6 +312,18 @@ def compute_bucketed(rows, cutoff, chart_end):
             if fan_on:
                 fan_last = b
 
+        # HVAC ranges (avg_ac_active > 0 means HVAC was in some non-off mode this bucket)
+        if avg_ac_active is not None:
+            hvac_on = avg_ac_active > 0
+            if hvac_on and not in_hvac:
+                hvac_start = b
+                in_hvac = True
+            elif not hvac_on and in_hvac:
+                hvac_ranges.append({"xMin": hvac_start * 1000, "xMax": (hvac_last + BUCKET_SECS) * 1000})
+                in_hvac = False
+            if hvac_on:
+                hvac_last = b
+
         # Ambient (4-bucket rolling avg)
         if avg_ambient_c is not None:
             amb_window.append(avg_ambient_c * 1.8 + 32)
@@ -267,6 +332,8 @@ def compute_bucketed(rows, cutoff, chart_end):
     # Close open ranges
     if in_heater:
         heater_ranges.append({"xMin": heater_start * 1000, "xMax": (heater_last + BUCKET_SECS) * 1000})
+    if in_hvac:
+        hvac_ranges.append({"xMin": hvac_start * 1000, "xMax": (hvac_last + BUCKET_SECS) * 1000})
     if in_cold:
         cold_ranges.append({"xMin": cold_start * 1000, "xMax": (cold_last + BUCKET_SECS) * 1000})
     if in_fan:
@@ -276,6 +343,7 @@ def compute_bucketed(rows, cutoff, chart_end):
         "chart_data": chart_data,
         "ambient_data": ambient_data,
         "heater_ranges": heater_ranges,
+        "hvac_ranges": hvac_ranges,
         "cold_ranges": cold_ranges,
         "fan_ranges": fan_ranges,
     }

@@ -243,7 +243,8 @@ CREATE TABLE IF NOT EXISTS readings (
     temp_c        REAL,
     heater_state  INTEGER,
     ambient_c     REAL,
-    fan_state     INTEGER
+    fan_state     INTEGER,
+    ac_state      INTEGER
 );
 """
 
@@ -251,7 +252,9 @@ _DISK_SCHEMA = _RAM_SCHEMA + """
 CREATE TABLE IF NOT EXISTS schedules (
     created_epoch  INTEGER PRIMARY KEY,
     execute_epoch  INTEGER NOT NULL,
-    action         TEXT NOT NULL
+    action         TEXT NOT NULL,
+    device         TEXT DEFAULT 'heater',
+    params         TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS monthly_cache (
@@ -272,10 +275,14 @@ def get_ram_db():
     conn = sqlite3.connect(str(RAM_DB))
     conn.execute("PRAGMA journal_mode=MEMORY")
     conn.executescript(_RAM_SCHEMA)
-    try:
-        conn.execute("ALTER TABLE readings ADD COLUMN fan_state INTEGER")
-    except Exception:
-        pass  # column already exists
+    for col_sql in (
+        "ALTER TABLE readings ADD COLUMN fan_state INTEGER",
+        "ALTER TABLE readings ADD COLUMN ac_state INTEGER",
+    ):
+        try:
+            conn.execute(col_sql)
+        except Exception:
+            pass  # column already exists
     return conn
 
 
@@ -292,10 +299,16 @@ def get_db():
     conn = sqlite3.connect(str(DISK_DB))
     conn.execute("PRAGMA journal_mode=DELETE")
     conn.executescript(_DISK_SCHEMA)
-    try:
-        conn.execute("ALTER TABLE readings ADD COLUMN fan_state INTEGER")
-    except Exception:
-        pass  # column already exists
+    for col_sql in (
+        "ALTER TABLE readings ADD COLUMN fan_state INTEGER",
+        "ALTER TABLE readings ADD COLUMN ac_state INTEGER",
+        "ALTER TABLE schedules ADD COLUMN device TEXT DEFAULT 'heater'",
+        "ALTER TABLE schedules ADD COLUMN params TEXT DEFAULT ''",
+    ):
+        try:
+            conn.execute(col_sql)
+        except Exception:
+            pass  # column already exists
 
     if RAM_DB.exists():
         conn.execute(f"ATTACH DATABASE '{RAM_DB}' AS ram")
@@ -305,13 +318,18 @@ def get_db():
                 temp_c        REAL,
                 heater_state  INTEGER,
                 ambient_c     REAL,
-                fan_state     INTEGER
+                fan_state     INTEGER,
+                ac_state      INTEGER
             );
         """)
-        try:
-            conn.execute("ALTER TABLE ram.readings ADD COLUMN fan_state INTEGER")
-        except Exception:
-            pass  # column already exists
+        for col_sql in (
+            "ALTER TABLE ram.readings ADD COLUMN fan_state INTEGER",
+            "ALTER TABLE ram.readings ADD COLUMN ac_state INTEGER",
+        ):
+            try:
+                conn.execute(col_sql)
+            except Exception:
+                pass  # column already exists
 
     return conn
 
@@ -323,17 +341,17 @@ def query_readings(conn, since_epoch, until_epoch):
     """
     if _has_ram(conn):
         sql = """
-            SELECT epoch, temp_c, heater_state, ambient_c, fan_state FROM readings
+            SELECT epoch, temp_c, heater_state, ambient_c, fan_state, ac_state FROM readings
             WHERE epoch >= ? AND epoch < ?
             UNION
-            SELECT epoch, temp_c, heater_state, ambient_c, fan_state FROM ram.readings
+            SELECT epoch, temp_c, heater_state, ambient_c, fan_state, ac_state FROM ram.readings
             WHERE epoch >= ? AND epoch < ?
             ORDER BY epoch
         """
         return conn.execute(sql, (since_epoch, until_epoch, since_epoch, until_epoch)).fetchall()
     else:
         return conn.execute(
-            "SELECT epoch, temp_c, heater_state, ambient_c, fan_state FROM readings "
+            "SELECT epoch, temp_c, heater_state, ambient_c, fan_state, ac_state FROM readings "
             "WHERE epoch >= ? AND epoch < ? ORDER BY epoch",
             (since_epoch, until_epoch)
         ).fetchall()
@@ -351,18 +369,23 @@ def query_bucketed(conn, since_epoch, until_epoch, bucket_secs=900):
     (0.0–1.0), or None if heater_state was never logged in this bucket.
     """
     bs = bucket_secs
+    # ac_active = 1.0 when HVAC is doing anything (mode != off); averaged over
+    # the bucket gives the fraction of minutes the HVAC was on. Multi-mode
+    # detail (heat vs cool) is dropped at this resolution to keep the chart
+    # band binary like heater_state / fan_state.
     select = (
         f"(epoch/{bs})*{bs},"
-        " AVG(temp_c), AVG(ambient_c), AVG(heater_state), AVG(fan_state)"
+        " AVG(temp_c), AVG(ambient_c), AVG(heater_state), AVG(fan_state),"
+        " AVG(CASE WHEN ac_state > 0 THEN 1.0 ELSE 0.0 END)"
     )
     group = f"GROUP BY (epoch/{bs})*{bs} ORDER BY (epoch/{bs})*{bs}"
     if _has_ram(conn):
         sql = (
             f"SELECT {select} FROM ("
-            "SELECT epoch, temp_c, heater_state, ambient_c, fan_state FROM readings"
+            "SELECT epoch, temp_c, heater_state, ambient_c, fan_state, ac_state FROM readings"
             " WHERE epoch >= ? AND epoch < ?"
             " UNION"
-            " SELECT epoch, temp_c, heater_state, ambient_c, fan_state FROM ram.readings"
+            " SELECT epoch, temp_c, heater_state, ambient_c, fan_state, ac_state FROM ram.readings"
             " WHERE epoch >= ? AND epoch < ?"
             f") {group}"
         )

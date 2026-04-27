@@ -223,10 +223,12 @@ Midea **US-OSK105** WiFi USB dongle (~$30 on Amazon: ASIN [B0GVSPFK1P](https://w
 
 1. **Plug** the dongle into the USB-shaped port behind the indoor unit's front panel (the snap-off filter cover; no electrical work).
 2. **Pair** it once via the **NetHome Plus** phone app — NOT SmartHome / MSmartHome. Their `get_token` cloud endpoint is currently broken (see [msmart-ng issue #201](https://github.com/mill1000/midea-msmart/issues/201)). If you registered through SmartHome, re-register via NetHome Plus before continuing.
-3. **Install msmart-ng** on the Pi:
+3. **Install msmart-ng** on the Pi (Pi OS Lite ships without pip by default):
    ```bash
-   sudo pip install msmart-ng
+   sudo apt install python3-pip
+   sudo pip install msmart-ng --break-system-packages
    ```
+   The `--break-system-packages` flag is needed on Bookworm and later (PEP 668). For this project's deployment model (system Python under mod_wsgi + root cron) it's the pragmatic choice — a venv would require reconfiguring the WSGI daemon and cron paths.
 4. **Run the setup helper** — it discovers the dongle on the LAN, prompts for your NetHome Plus credentials, fetches the local `token` + `key`, writes the four `HVAC_*` keys to `.env`, and verifies with a refresh:
    ```bash
    sudo python3 /usr/lib/cgi-bin/remote-switch/setup_hvac.py

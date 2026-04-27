@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import aggregate
 import config
+import hvac
 
 try:
     from markupsafe import Markup
@@ -301,13 +302,32 @@ def _handle(environ):
         config.write_fan_mode("auto")
         _redirect("switch.py")
 
+    # --- HVAC apply (immediate state change for Hangar HVAC) ---
+    if qs.get("hvac_apply") == "1" and hvac.is_configured():
+        hvac_mode = qs.get("hvac_mode", "")
+        if hvac_mode == hvac.MODE_FREEZE:
+            hvac.set_state(mode=hvac.MODE_FREEZE)
+        else:
+            try:
+                target_f = float(qs.get("hvac_target_f", "")) if qs.get("hvac_target_f") else None
+            except ValueError:
+                target_f = None
+            hvac.set_state(
+                power=(qs.get("hvac_power") == "1") if qs.get("hvac_power") in ("0", "1") else None,
+                mode=hvac_mode if hvac_mode in hvac.ALL_MODES else None,
+                target_f=target_f,
+                fan_speed=qs.get("hvac_fan_speed") if qs.get("hvac_fan_speed") in hvac.ALL_FANS else None,
+            )
+        _redirect("switch.py")
+
     # --- Schedule add ---
     now_epoch = int(datetime.now().timestamp())
     sched_msg = Markup("")
 
-    sched_dt_raw = qs.get("sched_dt", "")
-    sched_action = qs.get("sched_action", "")
-    if sched_dt_raw and sched_action in ("0", "1"):
+    sched_dt_raw  = qs.get("sched_dt", "")
+    sched_device  = qs.get("sched_device", "heater")
+    sched_action  = qs.get("sched_action", "")
+    if sched_dt_raw and (sched_device == "hvac" or sched_action in ("0", "1")):
         sched_dt_decoded = urllib.parse.unquote_plus(sched_dt_raw)
         try:
             sched_epoch = int(
@@ -318,12 +338,50 @@ def _handle(environ):
                     '<div class="alert alert-warning alert-sm py-1 mb-2">'
                     "Cannot schedule in the past.</div>"
                 )
+            elif sched_device == "hvac":
+                hvac_mode = qs.get("sched_hvac_mode", "")
+                if hvac_mode not in hvac.ALL_MODES:
+                    sched_msg = Markup(
+                        '<div class="alert alert-danger alert-sm py-1 mb-2">'
+                        "Invalid HVAC mode.</div>"
+                    )
+                else:
+                    try:
+                        sched_target_f = float(qs.get("sched_hvac_target_f", "")) \
+                            if qs.get("sched_hvac_target_f") else None
+                    except ValueError:
+                        sched_target_f = None
+                    sched_fan = qs.get("sched_hvac_fan_speed", "auto")
+                    if sched_fan not in hvac.ALL_FANS:
+                        sched_fan = "auto"
+                    sched_power = qs.get("sched_hvac_power") == "1"
+                    if hvac_mode == hvac.MODE_FREEZE:
+                        params = {"mode": hvac.MODE_FREEZE}
+                    else:
+                        params = {
+                            "power": sched_power,
+                            "mode": hvac_mode,
+                            "fan_speed": sched_fan,
+                        }
+                        if sched_target_f is not None:
+                            params["target_f"] = sched_target_f
+                    conn = config.get_db()
+                    conn.execute(
+                        "INSERT OR REPLACE INTO schedules "
+                        "(created_epoch, execute_epoch, action, device, params) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (now_epoch, sched_epoch, "set", "hvac", json.dumps(params)),
+                    )
+                    conn.commit()
+                    conn.close()
+                    _redirect("switch.py")
             else:
                 conn = config.get_db()
                 conn.execute(
-                    "INSERT OR REPLACE INTO schedules (created_epoch, execute_epoch, action) "
-                    "VALUES (?, ?, ?)",
-                    (now_epoch, sched_epoch, sched_action),
+                    "INSERT OR REPLACE INTO schedules "
+                    "(created_epoch, execute_epoch, action, device, params) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (now_epoch, sched_epoch, sched_action, "heater", ""),
                 )
                 conn.commit()
                 conn.close()
@@ -389,21 +447,32 @@ def _handle(environ):
             amb_f = amb_c * 1.8 + 32
             ambient_display = f"{amb_c:.1f} \u00b0C | {amb_f:.1f} \u00b0F"
 
+    # --- HVAC state ---
+    hvac_configured = hvac.is_configured()
+    hvac_state = hvac.get_state() if hvac_configured else None
+
     # --- Pending schedules ---
     conn = config.get_db()
     pending_rows = conn.execute(
-        "SELECT created_epoch, execute_epoch, action FROM schedules ORDER BY execute_epoch"
+        "SELECT created_epoch, execute_epoch, action, "
+        "COALESCE(device, 'heater'), COALESCE(params, '') "
+        "FROM schedules ORDER BY execute_epoch"
     ).fetchall()
     conn.close()
 
     pending_sched_rows = []
-    for created_epoch, execute_epoch, action in pending_rows:
-        action_label = "Turn ON" if action == "1" else "Turn OFF"
+    for created_epoch, execute_epoch, action, device, params in pending_rows:
+        if device == "hvac":
+            action_label = _hvac_sched_label(params)
+            badge = '<span class="badge bg-info text-dark me-1">HVAC</span>'
+        else:
+            action_label = "Turn ON" if action == "1" else "Turn OFF"
+            badge = '<span class="badge bg-secondary me-1">Heater</span>'
         sched_time = datetime.fromtimestamp(execute_epoch).strftime("%b %d, %Y %I:%M %p")
         cancel_url = f"switch.py?cancel_id={created_epoch}"
         pending_sched_rows.append(Markup(
             f'<tr><td>{html.escape(sched_time)}</td>'
-            f'<td>{html.escape(action_label)}</td>'
+            f'<td>{badge}{html.escape(action_label)}</td>'
             f'<td><a href="{html.escape(cancel_url)}" '
             f'class="btn btn-sm btn-outline-danger py-0">Cancel</a></td></tr>'
         ))
@@ -438,6 +507,7 @@ def _handle(environ):
 
     chart_data = []
     heater_ranges = []
+    hvac_ranges = []
     cold_ranges = []
     fan_ranges = []
     ambient_data = []
@@ -456,6 +526,7 @@ def _handle(environ):
                 cached_result = json.loads(cached[0])
                 chart_data = cached_result.get("chart_data", [])
                 heater_ranges = cached_result.get("heater_ranges", [])
+                hvac_ranges = cached_result.get("hvac_ranges", [])
                 cold_ranges = cached_result.get("cold_ranges", [])
                 fan_ranges = cached_result.get("fan_ranges", [])
                 ambient_data = cached_result.get("ambient_data", [])
@@ -466,6 +537,7 @@ def _handle(environ):
             live_result = aggregate.compute_bucketed(bucketed, chart_cutoff, chart_end_epoch)
             chart_data = live_result["chart_data"]
             heater_ranges = live_result["heater_ranges"]
+            hvac_ranges = live_result.get("hvac_ranges", [])
             cold_ranges = live_result["cold_ranges"]
             fan_ranges = live_result.get("fan_ranges", [])
             ambient_data = live_result["ambient_data"]
@@ -549,6 +621,7 @@ def _handle(environ):
         chart_title=chart_title,
         chart_data=chart_data,
         heater_ranges=heater_ranges,
+        hvac_ranges=hvac_ranges,
         cold_ranges=cold_ranges,
         fan_ranges=fan_ranges,
         ambient_data=ambient_data,
@@ -557,6 +630,14 @@ def _handle(environ):
         pending_sched_rows=pending_sched_rows,
         now_dt_min=now_dt_min,
         now_str=now_str,
+        # HVAC
+        hvac_configured=hvac_configured,
+        hvac_state=hvac_state,
+        hvac_modes=[(m, hvac.MODE_LABELS[m]) for m in hvac.ALL_MODES],
+        hvac_fans=[(f, hvac.FAN_LABELS[f]) for f in hvac.ALL_FANS],
+        hvac_temp_min_f=hvac.TEMP_MIN_F,
+        hvac_temp_max_f=hvac.TEMP_MAX_F,
+        hvac_mode_freeze=hvac.MODE_FREEZE,
     )
 
     return (
@@ -619,6 +700,29 @@ def _is_valid_month(s):
         return True
     except ValueError:
         return False
+
+
+def _hvac_sched_label(params_json):
+    """Render an HVAC schedule's params JSON as a human-readable string."""
+    if not params_json:
+        return "Set"
+    try:
+        p = json.loads(params_json)
+    except (ValueError, TypeError):
+        return "Set"
+    if p.get("mode") == hvac.MODE_FREEZE:
+        return hvac.MODE_LABELS[hvac.MODE_FREEZE]
+    parts = []
+    if p.get("power") is False:
+        parts.append("Off")
+    elif p.get("power") is True or p.get("mode"):
+        if p.get("mode"):
+            parts.append(hvac.MODE_LABELS.get(p["mode"], p["mode"]))
+        if p.get("target_f") is not None:
+            parts.append(f"{p['target_f']:.0f}°F")
+        if p.get("fan_speed") and p["fan_speed"] != "auto":
+            parts.append(f"fan {hvac.FAN_LABELS.get(p['fan_speed'], p['fan_speed']).lower()}")
+    return " · ".join(parts) if parts else "Set"
 
 
 if __name__ == "__main__":

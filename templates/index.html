@@ -36,6 +36,84 @@
 </div>
 
 <div class="card mb-3">
+<div class="card-header {% if hvac_state and hvac_state.reported and hvac_state.reported.power %}text-bg-info{% else %}text-bg-secondary{% endif %}">
+  <h4>Hangar HVAC</h4>
+</div>
+<div class="card-body">
+{% if not hvac_configured %}
+  <p class="mb-1">Not configured.</p>
+  <p class="small text-muted mb-0">Pair the Midea WiFi dongle via NetHome Plus on your phone, then run <code>python3 setup_hvac.py</code> on the Pi.</p>
+{% elif not hvac_state or not hvac_state.reported %}
+  <p class="text-danger mb-0">HVAC dongle unreachable. Check power and network.</p>
+{% else %}
+  {% set r = hvac_state.reported %}
+  <h5 class="card-title">
+    Status: <b>{{ "ON" if r.power else "OFF" }}</b>
+    {% if r.power %} &middot; Mode: <b>{{ r.mode|capitalize }}</b>
+    {% if r.target_f is not none %} &middot; Target: <b>{{ "%.0f"|format(r.target_f) }}&deg;F / {{ "%.1f"|format(r.target_c) }}&deg;C</b>{% endif %}
+    {% endif %}
+  </h5>
+  {% if r.indoor_f is not none %}
+  <p class="mb-1 small">Indoor unit thermistor: <b>{{ "%.1f"|format(r.indoor_f) }}&deg;F / {{ "%.1f"|format(r.indoor_c) }}&deg;C</b></p>
+  {% endif %}
+  {% if hvac_state.diverged and hvac_state.commanded %}
+  {% set c = hvac_state.commanded %}
+  <p class="mb-1 small text-warning">
+    <strong>Last commanded:</strong>
+    {% if c.power %}{{ c.mode|capitalize }}{% if c.target_f is not none %} {{ "%.0f"|format(c.target_f) }}&deg;F{% endif %}, fan {{ c.fan_speed }}{% else %}OFF{% endif %}
+    &mdash; physical remote may have been used.
+  </p>
+  {% endif %}
+  {% if hvac_state.stale %}
+  <p class="mb-1 small text-warning">Stale: dongle last reachable {{ hvac_state.age_secs }}s ago.</p>
+  {% endif %}
+
+  <form action="switch.py" method="GET" class="row g-2 align-items-end mt-2">
+    <input type="hidden" name="hvac_apply" value="1">
+    <div class="col-auto">
+      <label class="form-label mb-0 small">Power</label>
+      <select name="hvac_power" class="form-select form-select-sm">
+        <option value="1"{% if r.power %} selected{% endif %}>On</option>
+        <option value="0"{% if not r.power %} selected{% endif %}>Off</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <label class="form-label mb-0 small">Mode</label>
+      <select name="hvac_mode" class="form-select form-select-sm">
+        {% for val, label in hvac_modes %}{% if val != hvac_mode_freeze %}
+        <option value="{{ val }}"{% if r.mode == val %} selected{% endif %}>{{ label }}</option>
+        {% endif %}{% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <label class="form-label mb-0 small">Target &deg;F</label>
+      <input type="number" name="hvac_target_f" class="form-control form-control-sm"
+             min="{{ hvac_temp_min_f }}" max="{{ hvac_temp_max_f }}" step="1"
+             value="{{ "%.0f"|format(r.target_f) if r.target_f is not none else 70 }}" style="width:5em">
+    </div>
+    <div class="col-auto">
+      <label class="form-label mb-0 small">Fan</label>
+      <select name="hvac_fan_speed" class="form-select form-select-sm">
+        {% for val, label in hvac_fans %}
+        <option value="{{ val }}"{% if r.fan_speed == val %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+    </div>
+  </form>
+
+  <form action="switch.py" method="GET" class="d-inline">
+    <input type="hidden" name="hvac_apply" value="1">
+    <input type="hidden" name="hvac_mode" value="{{ hvac_mode_freeze }}">
+    <button type="submit" class="btn btn-outline-info btn-sm mt-2">Freeze Prevention preset</button>
+  </form>
+{% endif %}
+</div>
+</div>
+
+<div class="card mb-3">
 <div class="card-header {{ fan_header_class }}">
   <h4>Exhaust Fan</h4>
 </div>
@@ -66,6 +144,7 @@
     <a href="switch.py?range=7d" class="btn btn-sm {{ 'btn-primary' if range == '7d' else 'btn-outline-primary' }}">7 Days</a>
     <a href="switch.py?range=30d" class="btn btn-sm {{ 'btn-primary' if range == '30d' else 'btn-outline-primary' }}">30 Days</a>
     <span class="ms-3 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(220,53,69,0.3);vertical-align:middle"></span> Heater on</span>
+    <span class="ms-2 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(168,85,247,0.25);vertical-align:middle"></span> HVAC on</span>
     <span class="ms-2 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(13,110,253,0.3);vertical-align:middle"></span> Fan on</span>
     <span class="ms-2 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(255,152,0,0.3);vertical-align:middle"></span> &le; 48&deg;F</span>
     <span class="ms-2 small text-muted"><span style="display:inline-block;width:20px;border-top:2px solid rgb(34,197,94);vertical-align:middle"></span> {{ ambient_label }}</span>
@@ -95,22 +174,77 @@
 <div class="card-header"><h5 class="mb-0">Schedule</h5></div>
 <div class="card-body">
 {{ sched_msg }}
-<form action="switch.py" method="GET" class="row g-2 align-items-end">
+<form action="switch.py" method="GET" class="row g-2 align-items-end" id="schedForm">
   <div class="col-auto">
     <label for="sched_dt" class="form-label mb-0 small">Date &amp; Time</label>
     <input type="datetime-local" id="sched_dt" name="sched_dt" class="form-control form-control-sm" required min="{{ now_dt_min }}">
   </div>
   <div class="col-auto">
+    <label for="sched_device" class="form-label mb-0 small">Device</label>
+    <select id="sched_device" name="sched_device" class="form-select form-select-sm" onchange="schedToggle()">
+      <option value="heater">Heater</option>
+      {% if hvac_configured %}<option value="hvac">HVAC</option>{% endif %}
+    </select>
+  </div>
+  <div class="col-auto sched-heater">
     <label for="sched_action" class="form-label mb-0 small">Action</label>
     <select id="sched_action" name="sched_action" class="form-select form-select-sm">
       <option value="1">Turn ON</option>
       <option value="0">Turn OFF</option>
     </select>
   </div>
+  {% if hvac_configured %}
+  <div class="col-auto sched-hvac" style="display:none">
+    <label for="sched_hvac_mode" class="form-label mb-0 small">Mode</label>
+    <select id="sched_hvac_mode" name="sched_hvac_mode" class="form-select form-select-sm" onchange="schedHvacModeToggle()">
+      {% for val, label in hvac_modes %}
+      <option value="{{ val }}"{% if val == 'heat' %} selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto sched-hvac sched-hvac-temp" style="display:none">
+    <label for="sched_hvac_target_f" class="form-label mb-0 small">Target &deg;F</label>
+    <input type="number" id="sched_hvac_target_f" name="sched_hvac_target_f" class="form-control form-control-sm"
+           min="{{ hvac_temp_min_f }}" max="{{ hvac_temp_max_f }}" step="1" value="70" style="width:5em">
+  </div>
+  <div class="col-auto sched-hvac sched-hvac-fan" style="display:none">
+    <label for="sched_hvac_fan_speed" class="form-label mb-0 small">Fan</label>
+    <select id="sched_hvac_fan_speed" name="sched_hvac_fan_speed" class="form-select form-select-sm">
+      {% for val, label in hvac_fans %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-auto sched-hvac sched-hvac-power" style="display:none">
+    <label for="sched_hvac_power" class="form-label mb-0 small">Power</label>
+    <select id="sched_hvac_power" name="sched_hvac_power" class="form-select form-select-sm">
+      <option value="1" selected>On</option>
+      <option value="0">Off</option>
+    </select>
+  </div>
+  {% endif %}
   <div class="col-auto">
     <button type="submit" class="btn btn-primary btn-sm">Schedule</button>
   </div>
 </form>
+<script>
+function schedToggle() {
+  var device = document.getElementById('sched_device').value;
+  document.querySelectorAll('.sched-heater').forEach(function(el) { el.style.display = device === 'heater' ? '' : 'none'; });
+  document.querySelectorAll('.sched-hvac').forEach(function(el) { el.style.display = device === 'hvac' ? '' : 'none'; });
+  if (device === 'hvac') schedHvacModeToggle();
+}
+function schedHvacModeToggle() {
+  var modeSel = document.getElementById('sched_hvac_mode');
+  if (!modeSel) return;
+  var mode = modeSel.value;
+  // Freeze Prevention preset = no extra fields
+  var isFreeze = mode === 'freeze';
+  ['sched-hvac-temp', 'sched-hvac-fan', 'sched-hvac-power'].forEach(function(cls) {
+    document.querySelectorAll('.' + cls).forEach(function(el) {
+      el.style.display = isFreeze ? 'none' : '';
+    });
+  });
+}
+</script>
 {% if pending_sched_rows %}
 <hr>
 <h6>Pending</h6>
@@ -131,6 +265,7 @@
 <script>
 var data = {{ chart_data | tojson }};
 var heaterRanges = {{ heater_ranges | tojson }};
+var hvacRanges = {{ hvac_ranges | tojson }};
 var coldRanges = {{ cold_ranges | tojson }};
 var fanRanges = {{ fan_ranges | tojson }};
 var ambientData = {{ ambient_data | tojson }};
@@ -155,6 +290,7 @@ function buildRangeData(data, ranges) {
   return out;
 }
 var heaterData = buildRangeData(data, heaterRanges);
+var hvacData = buildRangeData(data, hvacRanges);
 var fanData = buildRangeData(data, fanRanges);
 var annotations = {};
 coldRanges.forEach(function(r, i) {
@@ -190,6 +326,14 @@ if (data.length > 0) {
         data: heaterData,
         borderColor: 'transparent',
         backgroundColor: 'rgba(220, 53, 69, 0.25)',
+        fill: 'origin',
+        pointRadius: 0,
+        tension: 0.3,
+        spanGaps: false
+      }, {
+        data: hvacData,
+        borderColor: 'transparent',
+        backgroundColor: 'rgba(168, 85, 247, 0.25)',
         fill: 'origin',
         pointRadius: 0,
         tension: 0.3,

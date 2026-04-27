@@ -68,8 +68,17 @@ Existing heater rows keep `action` = `"0"`/`"1"`; HVAC rows use `action` = `"set
 - **Freeze Prevention is a SOFTWARE PRESET, not a real anti-freeze flag.** `_resolve_freeze()` returns `(power=True, mode=HEAT, target_f=60, fan=LOW)` — Midea's heat-mode minimum. msmart-ng does not expose Midea's actual "8°C heating" feature byte over the dongle (it's IR-only on most units). If a true anti-freeze API later surfaces, replace `_resolve_freeze()` and leave the preset name unchanged.
 - **`state_for_log()`** returns `None` (not 0) when not configured / unreachable, so the `readings.ac_state` column stays NULL rather than misreporting "off". Aggregations treat `None` as "no data, don't render".
 
+## msmart-ng API surface (verified 2025.12.0)
+The wrappers were verified against msmart-ng 2025.12.0. If you upgrade, watch these specific symbols — past versions have moved them, and a future bump may again:
+- `from msmart.device import AirConditioner as AC` — constructor is positional `AC(ip, device_id, port)`. `await dev.authenticate(token, key)` (async) replaces older property-assignment patterns. Then `await dev.refresh()` and `await dev.apply()`.
+- Enums: `AC.OperationalMode.{AUTO, COOL, DRY, HEAT, FAN_ONLY, SMART_DRY}`, `AC.FanSpeed.{AUTO, MAX, HIGH, MEDIUM, LOW, SILENT}`. We map our 4 fan tokens to AUTO/LOW/MEDIUM/HIGH.
+- `from msmart.discover import Discover`. `Discover.discover(*, account=…, password=…, auto_connect=True)` does both LAN UDP discovery AND the cloud handshake in one call — returned `Device` objects already have `.token` / `.key` populated. **Do not call `cloud.get_token()` separately.**
+- `from msmart.cloud import NetHomePlusCloud, SmartHomeCloud, BaseCloud`. The plain `Cloud` class no longer exists. We don't instantiate any of these directly — `Discover.discover()` does it for us.
+- A drift sentinel: try `python3 -c "from msmart.cloud import NetHomePlusCloud"` after a version bump. If it fails, the API moved again and `setup_hvac.py` needs another patch.
+
 ## HVAC pairing (`setup_hvac.py`)
-- Use the **NetHome Plus** app to pair, NOT SmartHome. The SmartHome `get_token` cloud endpoint is currently broken (msmart-ng issue #201). The script enforces `account="NetHomePlus"` when it calls `Cloud(...)`.
+- Use the **NetHome Plus** app to pair, NOT SmartHome / MSmartHome. The SmartHome `get_token` cloud endpoint is currently broken (msmart-ng issue #201). If the user is on a SmartHome account they must re-register through NetHome Plus first.
+- The script is one round-trip: prompt creds → `Discover.discover(account=, password=, auto_connect=True)` → returned device already has token+key → write `.env` → verify.
 - One-time cloud roundtrip during pairing only; all subsequent control is local on TCP/6444. After pairing, the dongle's outbound internet can be blocked at the firewall without losing functionality.
 - The script preserves other `.env` keys (only replaces the four `HVAC_*` lines).
 

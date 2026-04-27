@@ -247,7 +247,7 @@ HVAC_KEY=<long hex string>
 ```
 
 ### What is "Freeze Prevention"?
-A software preset = Heat mode / 60°F (Midea's heat-mode minimum) / Low fan. msmart-ng does not currently expose Midea's true "8°C heating" anti-freeze flag (it's an IR-only feature on most models), so this is the closest equivalent you can drive over the dongle. Fine for keeping a Colorado hangar above freezing in winter.
+The unit's real Freeze Protection flag — the same feature the IR remote drives. When active the indoor unit displays "FP" and the firmware holds a minimum heat output (~8°C / 46°F) internally; you don't need to (and can't) set a target temp or fan speed. Picking any other mode in the web UI exits the flag automatically. Ideal for "keep the hangar above freezing all winter without thinking about it."
 
 ### Drift detection
 If someone uses the physical IR remote while you're away, the dongle's reported state diverges from what the web UI last commanded. When this happens, the HVAC card surfaces both the **Reported** state (what the unit is doing now) and **Last commanded** (what was last sent from the web), so you can see at a glance that the physical remote was used.

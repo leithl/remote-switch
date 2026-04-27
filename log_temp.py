@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import aggregate
 import config
+import hvac
 
 
 def _month_bounds(d):
@@ -163,17 +164,33 @@ def do_log():
 
         conn = config.get_db()
         due = conn.execute(
-            "SELECT created_epoch, action FROM schedules WHERE execute_epoch <= ?",
+            "SELECT created_epoch, action, COALESCE(device, 'heater'), COALESCE(params, '') "
+            "FROM schedules WHERE execute_epoch <= ?",
             (now_epoch,)
         ).fetchall()
 
-        for created_epoch, action in due:
-            if action in ("0", "1"):
+        for created_epoch, action, device, params in due:
+            if device == "heater":
+                # Engine-block heater: action is "0" or "1"
+                if action in ("0", "1"):
+                    try:
+                        config.write_gpio(action)
+                        heater_state = int(action)
+                    except (PermissionError, OSError):
+                        pass
+            elif device == "hvac":
+                # Hangar HVAC: params is JSON {power, mode, target_f, fan_speed}
                 try:
-                    config.write_gpio(action)
-                    heater_state = int(action)
-                except (PermissionError, OSError):
+                    p = json.loads(params) if params else {}
+                    hvac.set_state(
+                        power=p.get("power"),
+                        mode=p.get("mode"),
+                        target_f=p.get("target_f"),
+                        fan_speed=p.get("fan_speed"),
+                    )
+                except Exception:
                     pass
+
             conn.execute(
                 "DELETE FROM schedules WHERE created_epoch = ?",
                 (created_epoch,)
@@ -219,12 +236,15 @@ def do_log():
             except (PermissionError, OSError):
                 pass
 
+    # Read HVAC mode (None if not configured / dongle unreachable)
+    ac_state = hvac.state_for_log()
+
     # Write reading to RAM db
     ram_conn = config.get_ram_db()
     ram_conn.execute(
-        "INSERT OR REPLACE INTO readings (epoch, temp_c, heater_state, ambient_c, fan_state) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (now_epoch, temp_c, heater_state, ambient_c, fan_state)
+        "INSERT OR REPLACE INTO readings (epoch, temp_c, heater_state, ambient_c, fan_state, ac_state) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (now_epoch, temp_c, heater_state, ambient_c, fan_state, ac_state)
     )
     ram_conn.commit()
     ram_conn.close()

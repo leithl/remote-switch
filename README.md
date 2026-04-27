@@ -1,7 +1,7 @@
 # remote-switch
-Raspberry Pi connected to a mobile/cell network to turn on/off an AC-powered device.
+Raspberry Pi airplane hangar controller. Started as a one-relay remote for the airplane's engine-block oil-pan heater; now also runs an exhaust fan and a Durastar/Midea mini-split HVAC over the LAN — all from a single Pi Zero W on hangar WiFi (with LTE backup).
 
-I use it in an airplane hangar to turn on an airplane oil pan heater, but it would work anywhere there is reception and power to turn on/off any device.
+The web UI shows current state of all three devices, a 7d/30d/monthly temperature chart with colored bands per device, and a one-shot scheduler that can drive any of them.
 
 ## Equipment
 
@@ -11,11 +11,13 @@ Links provided for your convenience, but buy from wherever you prefer.
   * You'll need a microSD card if you don't have one. 4GB+ is enough.
 * [SIM7600 LTE modem HAT for Pi](https://www.waveshare.com/sim7600a-h-4g-hat.htm) also available on [Amazon](https://www.amazon.com/SIM7600A-H-4G-HAT-Communication-Positioning/dp/B082WH85WV/)
   * You'll need a SIM card. The docs say nano but the unit I had uses a mini SIM slot. I used a Google Fi SIM since it only costs data on my existing plan.
-  * Skip this if you already have reliable WiFi.
+  * Skip this if you already have reliable WiFi at the hangar.
 * [Digital Loggers IoT relay](https://dlidirect.com/products/iot-power-relay)
   * Connect `-` to GND on the Pi, and `+` to an unused GPIO pin.
-* (optional) [DS18B20 temperature probe](https://www.adafruit.com/product/381) — displays temperature on the control page
+  * Two of these for the engine-block heater (GPIO 17) and exhaust fan (GPIO 27).
+* (optional) [DS18B20 temperature probe](https://www.adafruit.com/product/381) — displays temperature on the control page and drives fan auto-mode
   * You'll also need a 4.7kΩ resistor between the data and power lines.
+* (optional) Midea **US-OSK105** WiFi USB dongle (~$30 on Amazon as ASIN B0GVSPFK1P) — required only if you want to control a Durastar or other Midea-OEM mini-split. See [Hangar HVAC](#optional-hangar-hvac-durastar-mini-split) below.
 
 ## Setup
 
@@ -198,7 +200,64 @@ Requires [`msmtp`](https://marlam.de/msmtp/) to be installed and configured. The
 
 ## Scheduling
 
-The web UI includes a one-shot scheduler to turn the heater on or off at a future date and time. Schedules are stored in the database and executed by the every-minute cron job — no additional setup needed. Schedules survive reboots.
+The web UI includes a one-shot scheduler that can act on either the engine-block heater (turn on/off) or the hangar HVAC (mode + target temp + fan, including a one-click Freeze Prevention preset). Schedules are stored in the database and executed by the every-minute cron job — no additional setup needed. Schedules survive reboots.
+
+---
+
+## Optional: Hangar HVAC (Durastar mini-split)
+
+The web UI can also control a hangar Durastar/Midea mini-split (and any other Midea-OEM unit — Pioneer, MrCool, Senville, Comfee, etc.) over the LAN via the Midea WiFi dongle. This is independent of the engine-block heater described above — the heater stays on its own GPIO relay; the HVAC is reached over the LAN through the [`msmart-ng`](https://github.com/mill1000/midea-msmart) Python library.
+
+### How it works
+- A small WiFi dongle plugs into a USB-shaped port inside the indoor unit's front panel and bridges Midea's serial protocol to a TCP service on port 6444 of the dongle's LAN IP.
+- After a one-time pairing through Midea's cloud, the Pi extracts a local `token` + `key` and from then on talks to the dongle directly on the LAN — no cloud roundtrip per command, and you can firewall the dongle off the internet.
+- The web UI's HVAC card lets you set power, mode (Heat / Cool / Auto / Dry / Fan), target temperature in °F, and fan speed. A one-click "Freeze Prevention preset" button sends Heat / 60°F / Low fan — useful for "keep the hangar from freezing" scenarios.
+- The scheduler accepts HVAC actions alongside heater actions; same `execute_epoch <= now` cron-driven dispatch.
+- The dongle is polled at most once every 30 seconds (cached in `/run/heater-hvac.json`); page loads never block on the network. If the dongle is unreachable, the UI shows the last-known state with a "stale Xs" badge instead of erroring.
+- HVAC activity is logged into `readings.ac_state` every minute and rendered on the chart as a purple band, so you can see HVAC + heater + fan + ambient temperature on one timeline.
+
+### Hardware
+Midea **US-OSK105** WiFi USB dongle (~$30 on Amazon: ASIN [B0GVSPFK1P](https://www.amazon.com/SmartKit-Adapter-Communication-Wireless-Connectivity/dp/B0GVSPFK1P)). The Durastar-branded `DRWIFIADPT1` is the same hardware behind a contractor-only Ferguson SKU — buy the generic Midea version and skip the wait.
+
+### Setup
+
+1. **Plug** the dongle into the USB-shaped port behind the indoor unit's front panel (the snap-off filter cover; no electrical work).
+2. **Pair** it once via the **NetHome Plus** phone app — NOT SmartHome / MSmartHome. Their `get_token` cloud endpoint is currently broken (see [msmart-ng issue #201](https://github.com/mill1000/midea-msmart/issues/201)). If you registered through SmartHome, re-register via NetHome Plus before continuing.
+3. **Install msmart-ng** on the Pi (Pi OS Lite ships without pip by default):
+   ```bash
+   sudo apt install python3-pip
+   sudo pip install msmart-ng --break-system-packages
+   ```
+   The `--break-system-packages` flag is needed on Bookworm and later (PEP 668). For this project's deployment model (system Python under mod_wsgi + root cron) it's the pragmatic choice — a venv would require reconfiguring the WSGI daemon and cron paths.
+4. **Run the setup helper** — it prompts for your NetHome Plus credentials, then in a single round-trip discovers the dongle on the LAN and authenticates it via Midea's cloud (returning the local `token` + `key`). The four `HVAC_*` keys are then written to `.env` and the script verifies with a live refresh:
+   ```bash
+   sudo python3 /usr/lib/cgi-bin/remote-switch/setup_hvac.py
+   ```
+5. Reload the web UI — the "Hangar HVAC" card replaces the "Not configured" placeholder, and HVAC becomes a device option in the scheduler.
+
+mod_wsgi auto-reloads on `.env` changes the next time `switch.py` is touched; if the new card doesn't appear immediately, `sudo systemctl reload apache2` (or `git pull` to bump the file mtime) forces it.
+
+### What's stored in `.env`
+After pairing, four keys are added — don't edit by hand, use `setup_hvac.py` to refresh:
+```
+HVAC_DONGLE_IP=192.168.1.50
+HVAC_DEVICE_ID=123456789012345
+HVAC_TOKEN=<long hex string>
+HVAC_KEY=<long hex string>
+```
+
+### What is "Freeze Prevention"?
+A software preset = Heat mode / 60°F (Midea's heat-mode minimum) / Low fan. msmart-ng does not currently expose Midea's true "8°C heating" anti-freeze flag (it's an IR-only feature on most models), so this is the closest equivalent you can drive over the dongle. Fine for keeping a Colorado hangar above freezing in winter.
+
+### Drift detection
+If someone uses the physical IR remote while you're away, the dongle's reported state diverges from what the web UI last commanded. When this happens, the HVAC card surfaces both the **Reported** state (what the unit is doing now) and **Last commanded** (what was last sent from the web), so you can see at a glance that the physical remote was used.
+
+### Troubleshooting
+- **`setup_hvac.py` finds no devices.** Check the dongle is powered (LED inside the indoor unit), paired via NetHome Plus, and on the same subnet as the Pi (hangar WiFi often runs an isolated guest network — make sure the Pi and the dongle are on the same one).
+- **Setup fails at "Discovery / cloud auth failed".** Most often a SmartHome vs NetHome Plus account mismatch — re-register via NetHome Plus and retry. If that's not it, double-check the password (case-sensitive) and that you can sign in to the NetHome Plus app on the phone with the same credentials.
+- **`ImportError: cannot import name '...' from 'msmart...'`.** msmart-ng's API has shifted between releases. The wrappers in this repo were verified against `msmart-ng==2025.12.0`. If you're on a much newer version and an import name has moved, see CLAUDE.md ("msmart-ng API surface") for the symbols to grep and pin a working version with `sudo pip install msmart-ng==2025.12.0`.
+- **HVAC card shows "stale Xs ago".** The dongle isn't replying. Check the indoor unit has power, the dongle hasn't fallen out, and the LAN IP hasn't changed (DHCP). If the IP changed, re-run `setup_hvac.py` to refresh `.env`.
+- **HVAC card shows "Not configured" after pairing.** Verify all four `HVAC_*` keys are present and non-empty in `.env`.
 
 ---
 
@@ -210,6 +269,7 @@ To minimise SD card writes on the Raspberry Pi, all per-minute data is written t
 /run/heater.db                  ← RAM (tmpfs). Volatile. Written every minute.
 /var/lib/heater/heater.db       ← Disk (SD card). Written weekly (flush) + monthly (rollup).
 /run/heater-ambient.tmp         ← Ambient temp cache (15-min TTL, ~50 bytes).
+/run/heater-hvac.json           ← Cached HVAC dongle state (30-sec TTL, ~400 bytes). Optional.
 ```
 
 ---

@@ -138,8 +138,8 @@
 <div class="card-body">
   <p class="mb-1"><strong>Hangar:</strong> {{ temp_display }}</p>
   {% if ambient_display %}<p class="mb-1"><strong>Outdoor:</strong> {{ ambient_display }}</p>{% endif %}
-  <p class="mb-1 small text-muted" id="metar" style="display:none;cursor:pointer" onclick="toggleWxDecode(this)"></p>
-  <p class="mb-2 small text-muted" id="taf" style="display:none;white-space:pre-wrap;cursor:pointer" onclick="toggleWxDecode(this)"></p>
+  <div class="mb-2 wx-decoded" id="metar" style="display:none;cursor:pointer;white-space:pre-wrap" onclick="toggleWxDecode(this)"></div>
+  <div class="mb-3 wx-decoded" id="taf" style="display:none;cursor:pointer;white-space:pre-wrap" onclick="toggleWxDecode(this)"></div>
   <div class="mb-2">
     <a href="switch.py?range=7d" class="btn btn-sm {{ 'btn-primary' if range == '7d' else 'btn-outline-primary' }}">7 Days</a>
     <a href="switch.py?range=30d" class="btn btn-sm {{ 'btn-primary' if range == '30d' else 'btn-outline-primary' }}">30 Days</a>
@@ -147,7 +147,8 @@
     <span class="ms-2 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(168,85,247,0.25);vertical-align:middle"></span> HVAC on</span>
     <span class="ms-2 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(13,110,253,0.3);vertical-align:middle"></span> Fan on</span>
     <span class="ms-2 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(255,152,0,0.3);vertical-align:middle"></span> &le; 48&deg;F</span>
-    <span class="ms-2 small text-muted"><span style="display:inline-block;width:20px;border-top:2px solid rgb(34,197,94);vertical-align:middle"></span> {{ ambient_label }}</span>
+    <span class="ms-2 small text-muted"><span style="display:inline-block;width:20px;border-top:2px solid rgb(75,192,192);vertical-align:middle"></span> Hangar</span>
+    <span class="ms-2 small text-muted"><span style="display:inline-block;width:20px;border-top:2px solid rgb(34,197,94);vertical-align:middle"></span> Ambient</span>
   </div>
   <canvas id="tempChart"></canvas>
   <button id="resetZoom" style="display:none" class="btn btn-sm btn-outline-secondary mt-2" onclick="tempChart.resetZoom()">Reset zoom</button>
@@ -156,18 +157,140 @@
 </div>
 
 <div class="card mb-3">
-<div class="card-header"><h5 class="mb-0">Monthly Statistics</h5></div>
-<div class="card-body">
+<div class="card-header d-flex align-items-center justify-content-between">
+  <h5 class="mb-0">Monthly Statistics</h5>
+  <div class="btn-group btn-group-sm" role="group" aria-label="Units">
+    <input type="radio" class="btn-check" name="statsUnit" id="statsUnitF" value="f" autocomplete="off" checked>
+    <label class="btn btn-outline-secondary" for="statsUnitF">&deg;F</label>
+    <input type="radio" class="btn-check" name="statsUnit" id="statsUnitC" value="c" autocomplete="off">
+    <label class="btn btn-outline-secondary" for="statsUnitC">&deg;C</label>
+  </div>
+</div>
+<div class="card-body p-0">
+{% if months_data %}
+<div class="stats-wrap" id="statsWrap">
 <div class="table-responsive">
-<table class="table table-sm table-striped table-hover mb-0">
-<thead><tr><th>Month</th><th>Avg (&deg;F / &deg;C)</th><th>Min (&deg;F / &deg;C)</th><th>Max (&deg;F / &deg;C)</th><th>Hrs &le; 48&deg;F</th><th>Heater</th><th>Fan</th></tr></thead>
+<table class="table table-sm table-striped table-hover mb-0 stats-table">
+<thead>
+<tr>
+  <th class="stats-metric-col">Metric</th>
+  {% for m in months_data %}
+  <th class="text-end stats-month-col" onclick="location='switch.py?range={{ m.mk }}'" style="cursor:pointer">
+    {{ m.label }}{% if m.coverage_pct < 100 %}<br><span class="small text-muted fw-normal">{{ "%.1f"|format(m.coverage_pct) }}%</span>{% endif %}
+  </th>
+  {% endfor %}
+</tr>
+</thead>
 <tbody>
-{% for row in combined_stats_rows %}{{ row }}{% endfor %}
+<tr class="stats-group"><td colspan="{{ months_data|length + 1 }}" class="fw-semibold small text-uppercase text-muted">Hangar</td></tr>
+<tr>
+  <td class="stats-metric-col ps-3">Avg</td>
+  {% for m in months_data %}
+  <td class="text-end"><span class="unit-f">{{ "%.1f"|format(m.hangar.avg_f) }}&deg;F</span><span class="unit-c">{{ "%.1f"|format(m.hangar.avg_c) }}&deg;C</span></td>
+  {% endfor %}
+</tr>
+<tr>
+  <td class="stats-metric-col ps-3">Min</td>
+  {% for m in months_data %}
+  <td class="text-end"><span class="unit-f">{{ "%.1f"|format(m.hangar.min_f) }}&deg;F</span><span class="unit-c">{{ "%.1f"|format(m.hangar.min_c) }}&deg;C</span></td>
+  {% endfor %}
+</tr>
+<tr>
+  <td class="stats-metric-col ps-3">Max</td>
+  {% for m in months_data %}
+  <td class="text-end"><span class="unit-f">{{ "%.1f"|format(m.hangar.max_f) }}&deg;F</span><span class="unit-c">{{ "%.1f"|format(m.hangar.max_c) }}&deg;C</span></td>
+  {% endfor %}
+</tr>
+<tr>
+  <td class="stats-metric-col ps-3"><span class="unit-f">Hrs &le; 48&deg;F</span><span class="unit-c">Hrs &le; 8.9&deg;C</span></td>
+  {% for m in months_data %}
+  <td class="text-end">{{ "%.1f"|format(m.hangar.cold_hrs) }}</td>
+  {% endfor %}
+</tr>
+{% if months_data|selectattr('outdoor')|list %}
+<tr class="stats-group"><td colspan="{{ months_data|length + 1 }}" class="fw-semibold small text-uppercase text-muted">Outdoor</td></tr>
+<tr>
+  <td class="stats-metric-col ps-3">Avg</td>
+  {% for m in months_data %}
+  <td class="text-end">{% if m.outdoor %}<span class="unit-f">{{ "%.1f"|format(m.outdoor.avg_f) }}&deg;F</span><span class="unit-c">{{ "%.1f"|format(m.outdoor.avg_c) }}&deg;C</span>{% else %}<span class="text-muted">&mdash;</span>{% endif %}</td>
+  {% endfor %}
+</tr>
+<tr>
+  <td class="stats-metric-col ps-3">Min</td>
+  {% for m in months_data %}
+  <td class="text-end">{% if m.outdoor %}<span class="unit-f">{{ "%.1f"|format(m.outdoor.min_f) }}&deg;F</span><span class="unit-c">{{ "%.1f"|format(m.outdoor.min_c) }}&deg;C</span>{% else %}<span class="text-muted">&mdash;</span>{% endif %}</td>
+  {% endfor %}
+</tr>
+<tr>
+  <td class="stats-metric-col ps-3">Max</td>
+  {% for m in months_data %}
+  <td class="text-end">{% if m.outdoor %}<span class="unit-f">{{ "%.1f"|format(m.outdoor.max_f) }}&deg;F</span><span class="unit-c">{{ "%.1f"|format(m.outdoor.max_c) }}&deg;C</span>{% else %}<span class="text-muted">&mdash;</span>{% endif %}</td>
+  {% endfor %}
+</tr>
+<tr>
+  <td class="stats-metric-col ps-3"><span class="unit-f">Hrs &le; 48&deg;F</span><span class="unit-c">Hrs &le; 8.9&deg;C</span></td>
+  {% for m in months_data %}
+  <td class="text-end">{% if m.outdoor %}{{ "%.1f"|format(m.outdoor.cold_hrs) }}{% else %}<span class="text-muted">&mdash;</span>{% endif %}</td>
+  {% endfor %}
+</tr>
+{% endif %}
+<tr class="stats-group"><td colspan="{{ months_data|length + 1 }}" class="fw-semibold small text-uppercase text-muted">Runtime</td></tr>
+<tr>
+  <td class="stats-metric-col ps-3">Heater</td>
+  {% for m in months_data %}
+  <td class="text-end">{{ m.heater_str if m.heater_str else '—' }}</td>
+  {% endfor %}
+</tr>
+<tr>
+  <td class="stats-metric-col ps-3">Fan</td>
+  {% for m in months_data %}
+  <td class="text-end">{{ m.fan_str if m.fan_str else '—' }}</td>
+  {% endfor %}
+</tr>
 </tbody>
 </table>
 </div>
 </div>
+{% else %}
+<p class="text-muted m-3 mb-0">No monthly data yet.</p>
+{% endif %}
 </div>
+</div>
+<style>
+.stats-wrap.unit-c .unit-f,
+.stats-wrap:not(.unit-c) .unit-c { display: none; }
+.stats-table th.stats-metric-col,
+.stats-table td.stats-metric-col {
+  position: sticky; left: 0; z-index: 1;
+  background: var(--bs-table-bg, #fff);
+  white-space: nowrap;
+}
+.stats-table tr:nth-of-type(odd) td.stats-metric-col {
+  background: var(--bs-table-striped-bg, #f2f2f2);
+}
+.stats-table tr.stats-group td { background: #e9ecef; }
+.stats-table th, .stats-table td { white-space: nowrap; }
+</style>
+<script>
+(function() {
+  var wrap = document.getElementById('statsWrap');
+  if (!wrap) return;
+  var saved = null;
+  try { saved = localStorage.getItem('statsUnit'); } catch (e) {}
+  if (saved === 'c') {
+    wrap.classList.add('unit-c');
+    var c = document.getElementById('statsUnitC');
+    if (c) c.checked = true;
+  }
+  document.querySelectorAll('input[name="statsUnit"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      if (this.value === 'c') wrap.classList.add('unit-c');
+      else wrap.classList.remove('unit-c');
+      try { localStorage.setItem('statsUnit', this.value); } catch (e) {}
+    });
+  });
+})();
+</script>
 {% endif %}
 
 <div class="card mb-3">
@@ -393,6 +516,14 @@ if (data.length > 0) {
 }
 </script>
 {% endif %}
+<style>
+.wx-block { display: grid; grid-template-columns: 5.5em 1fr; column-gap: 10px; row-gap: 2px; align-items: baseline; }
+.wx-block + .wx-block { margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(0,0,0,0.08); }
+.wx-head { grid-column: 1 / -1; font-weight: 600; font-size: .85em; color: #495057; margin-bottom: 2px; }
+.wx-label { font-size: .72em; color: #6c757d; text-transform: uppercase; letter-spacing: .04em; padding-top: 2px; }
+.wx-val { font-size: .9em; color: #212529; }
+.wx-decoded[data-decoded] { white-space: normal; }
+</style>
 <script>
 var wxPhenomena = {
   MI:'shallow',PR:'partial',BC:'patches',DR:'low drifting',BL:'blowing',
@@ -413,105 +544,111 @@ function zuluToLocal(dd, hh, mm) {
   return wxMonths[utc.getMonth()] + ' ' + utc.getDate() + ' '
     + String(utc.getHours()).padStart(2,'0') + ':' + String(utc.getMinutes()).padStart(2,'0');
 }
-var COLS = ['time','wind','vis','wx','cloud','other'];
-function pill(cat, text) {
-  var colors = {
-    station:'primary', time:'secondary', wind:'info', vis:'success',
-    cloud:'warning', wx:'danger', temp:'primary', pressure:'secondary',
-    remark:'light', tafgroup:'dark'
-  };
-  var bg = colors[cat] || 'secondary';
-  var tc = (bg==='light'||bg==='warning') ? ' text-dark' : '';
-  return '<span class="badge rounded-pill bg-' + bg + tc + ' me-1 mb-1" style="font-weight:500">' + text + '</span>';
+function escapeWx(s) {
+  return String(s).replace(/[&<>"']/g, function(c) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
 }
 function decodeWxToken(tok) {
   var m;
-  if (tok === 'AUTO') return {col:'time', html:pill('time','Auto')};
-  if (tok === 'COR') return {col:'time', html:pill('time','Corrected')};
+  if (tok === 'AUTO') return {label:'Type', value:'Auto'};
+  if (tok === 'COR') return {label:'Type', value:'Corrected'};
   if ((m = tok.match(/^(\d{2})(\d{2})(\d{2})Z$/)))
-    return {col:'time', html:pill('time', zuluToLocal(m[1], m[2], m[3]))};
+    return {label:'Time', value: zuluToLocal(m[1], m[2], m[3])};
   if ((m = tok.match(/^(VRB|\d{3})(\d{2,3})(G(\d{2,3}))?KT$/)))
-    return {col:'wind', html:pill('wind', (m[1]==='VRB'?'Vrbl':m[1]+'\u00B0') + ' ' + +m[2] + (m[4]?'G'+m[4]:'') + 'kt')};
+    return {label:'Wind', value:(m[1]==='VRB'?'Variable':m[1]+'\u00B0') + ' ' + +m[2] + (m[4]?' gust '+m[4]:'') + 'kt'};
   if ((m = tok.match(/^(\d{3})V(\d{3})$/)))
-    return {col:'wind', html:pill('wind', m[1]+'\u00B0\u2013'+m[2]+'\u00B0')};
+    return {label:'Wind', value: m[1]+'\u00B0\u2013'+m[2]+'\u00B0', append:true};
   if ((m = tok.match(/^(\d+)(\/(\d+))?SM$/)))
-    return {col:'vis', html:pill('vis', (m[3] ? m[1]+'/'+m[3] : m[1]) + 'mi')};
-  if (tok === 'P6SM') return {col:'vis', html:pill('vis','>6mi')};
-  if (tok === 'SKC' || tok === 'CLR') return {col:'cloud', html:pill('cloud','Clear')};
+    return {label:'Vis', value:(m[3] ? m[1]+'/'+m[3] : m[1]) + 'mi'};
+  if (tok === 'P6SM') return {label:'Vis', value:'>6mi'};
+  if (tok === 'SKC' || tok === 'CLR') return {label:'Sky', value:'Clear'};
   if ((m = tok.match(/^(FEW|SCT|BKN|OVC|VV)(\d{3})(CB|TCU)?$/)))
-    return {col:'cloud', html:pill('cloud', wxCloud[m[1]] + ' ' + (+m[2]*100) + 'ft' + (m[3]==='CB'?' CB':m[3]==='TCU'?' TCU':''))};
+    return {label:'Sky', value: wxCloud[m[1]] + ' ' + (+m[2]*100) + 'ft' + (m[3]==='CB'?' CB':m[3]==='TCU'?' TCU':''), append:true};
   if ((m = tok.match(/^([+-]|VC)?([A-Z]{2,})$/)) && !tok.match(/^(METAR|TAF|SPECI|RMK|BECMG|TEMPO|AO[12]|NOSIG|NOSPECI|SKC|CLR)$/)) {
-    var pfx = m[1]==='-'?'Lt ':m[1]==='+'?'Hvy ':m[1]==='VC'?'VC ':'';
+    var pfx = m[1]==='-'?'Light ':m[1]==='+'?'Heavy ':m[1]==='VC'?'Vicinity ':'';
     var codes = m[2], desc = [];
     for (var i=0;i<codes.length;i+=2) {
       var c = codes.substr(i,2);
       if (wxPhenomena[c]) desc.push(wxPhenomena[c]);
       else return null;
     }
-    if (desc.length) return {col:'wx', html:pill('wx', pfx + desc.join(' '))};
+    if (desc.length) return {label:'Weather', value: pfx + desc.join(' '), append:true};
   }
   if ((m = tok.match(/^(M?)(\d{2})\/(M?)(\d{2})$/)))
-    return {col:'other', html:pill('temp', (m[1]?'-':'') + +m[2] + '\u00B0C') + pill('temp', 'Dew ' + (m[3]?'-':'') + +m[4] + '\u00B0C')};
+    return {label:'Temp', value: (m[1]?'\u2212':'') + +m[2] + '\u00B0C, dew ' + (m[3]?'\u2212':'') + +m[4] + '\u00B0C'};
   if ((m = tok.match(/^A(\d{4})$/)))
-    return {col:'other', html:pill('pressure', (m[1]/100).toFixed(2) + '"Hg')};
+    return {label:'Pressure', value: (m[1]/100).toFixed(2) + '"Hg'};
   if ((m = tok.match(/^Q(\d{3,4})$/)))
-    return {col:'other', html:pill('pressure', +m[1] + 'hPa')};
+    return {label:'Pressure', value: +m[1] + 'hPa'};
   return null;
 }
 function decodeTafToken(tok) {
   var m;
   if ((m = tok.match(/^(\d{2})(\d{2})\/(\d{2})(\d{2})$/)))
-    return {col:'time', html:pill('tafgroup', zuluToLocal(m[1], m[2], '00') + ' \u2013 ' + zuluToLocal(m[3], m[4], '00'))};
+    return {label:'Valid', value: zuluToLocal(m[1], m[2], '00') + ' \u2013 ' + zuluToLocal(m[3], m[4], '00')};
   if ((m = tok.match(/^FM(\d{2})(\d{2})(\d{2})$/)))
-    return {col:'time', html:pill('tafgroup', 'From ' + zuluToLocal(m[1], m[2], m[3]))};
-  if (tok === 'BECMG') return {col:'time', html:pill('tafgroup','Becoming')};
-  if (tok === 'TEMPO') return {col:'time', html:pill('tafgroup','Temporarily')};
-  if ((m = tok.match(/^PROB(\d{2})$/))) return {col:'time', html:pill('tafgroup', m[1] + '% prob')};
+    return {head: 'From ' + zuluToLocal(m[1], m[2], m[3])};
+  if (tok === 'BECMG') return {head:'Becoming'};
+  if (tok === 'TEMPO') return {head:'Temporarily'};
+  if ((m = tok.match(/^PROB(\d{2})$/))) return {headPrefix: m[1] + '% prob '};
   return null;
 }
-function parseWxRow(tokens, isTaf, isFirstTafLine) {
-  var cells = {}; COLS.forEach(function(c){cells[c]='';});
+function parseWxBlock(tokens, isTaf, isFirstLine) {
+  var block = {head:'', fields:[]};  // fields: [{label, value}]
   var rmkParts = [], rmk = false;
+  var byLabel = {};
+  function setField(label, value, append) {
+    if (append && byLabel[label] !== undefined) {
+      block.fields[byLabel[label]].value += ', ' + value;
+    } else {
+      byLabel[label] = block.fields.length;
+      block.fields.push({label:label, value:value});
+    }
+  }
   for (var i=0;i<tokens.length;i++) {
     var t = tokens[i];
-    if (t === 'METAR' || t === 'SPECI') { cells.time += pill('station','METAR'); continue; }
-    if (t === 'TAF') { cells.time += pill('station','TAF'); continue; }
+    if (t === 'METAR' || t === 'SPECI') { block.head = t; continue; }
+    if (t === 'TAF') { block.head = 'TAF'; continue; }
     if (t === 'RMK') { rmk = true; continue; }
     if (rmk) { rmkParts.push(t); continue; }
-    if (i <= 2 && (!isTaf || isFirstTafLine) && t.match(/^K?[A-Z]{3,4}$/)) {
-      cells.time += pill('station', t);
+    if (i <= 2 && (!isTaf || isFirstLine) && t.match(/^K?[A-Z]{3,4}$/)) {
+      setField('Station', t, false);
       continue;
     }
     var d = (isTaf ? decodeTafToken(t) : null) || decodeWxToken(t);
-    if (d) cells[d.col] += d.html;
+    if (!d) continue;
+    if (d.head) { block.head = (block.head ? block.head + ' ' : '') + d.head; continue; }
+    if (d.headPrefix) { block.head = (block.head || '') + d.headPrefix; continue; }
+    setField(d.label, d.value, d.append);
   }
-  if (rmkParts.length) cells.other += pill('remark','RMK') + '<span class="small">' + rmkParts.join(' ') + '</span>';
-  return cells;
+  if (rmkParts.length) setField('RMK', rmkParts.join(' '), false);
+  return block;
 }
-function buildTable(rows) {
+function renderWxBlocks(blocks) {
   var html = '';
-  rows.forEach(function(r){
-    html += '<div style="display:flex;flex-wrap:wrap;line-height:2;margin-bottom:2px">';
-    COLS.forEach(function(c){
-      if (r[c]) html += r[c];
+  blocks.forEach(function(b){
+    if (!b.head && !b.fields.length) return;
+    html += '<div class="wx-block">';
+    if (b.head) html += '<div class="wx-head">' + escapeWx(b.head) + '</div>';
+    b.fields.forEach(function(f){
+      html += '<div class="wx-label">' + escapeWx(f.label) + '</div>'
+            + '<div class="wx-val">' + escapeWx(f.value) + '</div>';
     });
     html += '</div>';
   });
   return html;
 }
 function decodeMetar(raw) {
-  var tokens = raw.split(/\s+/);
-  var row = parseWxRow(tokens, false, false);
-  return buildTable([row]);
+  return renderWxBlocks([parseWxBlock(raw.split(/\s+/), false, false)]);
 }
 function decodeTaf(raw) {
   var lines = raw.split('\n');
-  var rows = [];
+  var blocks = [];
   for (var li=0;li<lines.length;li++) {
-    var tokens = lines[li].trim().split(/\s+/);
-    rows.push(parseWxRow(tokens, true, li===0));
+    blocks.push(parseWxBlock(lines[li].trim().split(/\s+/), true, li===0));
   }
-  return buildTable(rows);
+  return renderWxBlocks(blocks);
 }
 function toggleWxDecode(el) {
   if (el.dataset.decoded) {

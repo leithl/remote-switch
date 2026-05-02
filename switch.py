@@ -93,44 +93,26 @@ def _month_label(d):
 
 
 # ---------------------------------------------------------------------------
-# Stats row builders
+# Stats data builder
 # ---------------------------------------------------------------------------
 
-def _month_rows(mk, label, ts, as_, rs, t_pct):
-    """Build merged <tr> row(s) for one month: temp + runtime + optional outdoor sub-row."""
-    cov_label = label if t_pct >= 100 else f"{label} ({t_pct:.1f}%)"
-    click = f' onclick="location=\'switch.py?range={html.escape(mk)}\'" style="cursor:pointer"'
-
+def _month_data(mk, label, ts, as_, rs, t_pct):
+    """Return structured stats dict for one month (consumed by the transposed template table)."""
     if rs:
-        heater_cell = f'{rs["on_hrs"]:.1f}h ({rs["avg_hrs_day"]:.1f}/day)'
-        fan_cell = f'{rs["fan_on_hrs"]:.1f}h' if "fan_on_hrs" in rs else "—"
+        heater_str = f'{rs["on_hrs"]:.1f}h ({rs["avg_hrs_day"]:.1f}/day)'
+        fan_str = f'{rs["fan_on_hrs"]:.1f}h' if "fan_on_hrs" in rs else None
     else:
-        heater_cell = fan_cell = "—"
-
-    out = Markup(
-        f'<tr{click}>'
-        f'<td>{html.escape(cov_label)}</td>'
-        f'<td>{ts["avg_f"]:.1f} / {ts["avg_c"]:.1f}</td>'
-        f'<td>{ts["min_f"]:.1f} / {ts["min_c"]:.1f}</td>'
-        f'<td>{ts["max_f"]:.1f} / {ts["max_c"]:.1f}</td>'
-        f'<td>{ts["cold_hrs"]:.1f}</td>'
-        f'<td>{heater_cell}</td>'
-        f'<td>{fan_cell}</td>'
-        f'</tr>'
-    )
-    if as_:
-        out += Markup(
-            f'<tr{click}>'
-            f'<td class="ps-3 text-muted small">Outdoor</td>'
-            f'<td>{as_["avg_f"]:.1f} / {as_["avg_c"]:.1f}</td>'
-            f'<td>{as_["min_f"]:.1f} / {as_["min_c"]:.1f}</td>'
-            f'<td>{as_["max_f"]:.1f} / {as_["max_c"]:.1f}</td>'
-            f'<td>{as_["cold_hrs"]:.1f}</td>'
-            f'<td class="text-muted">—</td>'
-            f'<td class="text-muted">—</td>'
-            f'</tr>'
-        )
-    return out
+        heater_str = None
+        fan_str = None
+    return {
+        "mk": mk,
+        "label": label,
+        "coverage_pct": t_pct,
+        "hangar": ts,
+        "outdoor": as_,
+        "heater_str": heater_str,
+        "fan_str": fan_str,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -439,7 +421,7 @@ def _handle(environ):
     )
 
     # --- Ambient label + current ambient temp ---
-    amb_lat, amb_lon, ambient_label = config.get_location()
+    amb_lat, amb_lon, _ = config.get_location()
     ambient_display = ""
     if enable_temp and amb_lat and amb_lon:
         amb_c = config.fetch_ambient(amb_lat, amb_lon)
@@ -511,7 +493,7 @@ def _handle(environ):
     cold_ranges = []
     fan_ranges = []
     ambient_data = []
-    combined_stats_rows = []
+    months_data = []
 
     if enable_temp:
         conn = config.get_db()
@@ -585,7 +567,7 @@ def _handle(environ):
                 rs = cached.get("runtime_stats")
                 if ts and rs:
                     t_pct = rs.get("temp_coverage_pct", 0)
-                    combined_stats_rows.append(_month_rows(mk, lbl, ts, as_, rs, t_pct))
+                    months_data.append(_month_data(mk, lbl, ts, as_, rs, t_pct))
             else:
                 sql_row = live_batch_stats.get(mk)
                 if not sql_row:
@@ -593,7 +575,7 @@ def _handle(environ):
                 ts, as_, rs = _build_stats(sql_row, m_start, effective_end)
                 if ts and rs:
                     t_pct = rs.get("temp_coverage_pct", 0)
-                    combined_stats_rows.append(_month_rows(mk, lbl, ts, as_, rs, t_pct))
+                    months_data.append(_month_data(mk, lbl, ts, as_, rs, t_pct))
 
         conn.close()
 
@@ -616,7 +598,6 @@ def _handle(environ):
         fan_toggle_btn=fan_toggle_btn,
         temp_display=temp_display,
         ambient_display=ambient_display,
-        ambient_label=ambient_label,
         range=range_param,
         chart_title=chart_title,
         chart_data=chart_data,
@@ -625,7 +606,7 @@ def _handle(environ):
         cold_ranges=cold_ranges,
         fan_ranges=fan_ranges,
         ambient_data=ambient_data,
-        combined_stats_rows=combined_stats_rows,
+        months_data=months_data,
         sched_msg=sched_msg,
         pending_sched_rows=pending_sched_rows,
         now_dt_min=now_dt_min,

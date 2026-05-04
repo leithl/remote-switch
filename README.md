@@ -204,6 +204,50 @@ The web UI includes a one-shot scheduler that can act on either the engine-block
 
 ---
 
+## Optional: WiFi Bridge (for HVAC pairing on open WiFi)
+
+The Midea WiFi dongle's pairing app (NetHome Plus) requires a WPA2-protected SSID. Hangar WiFi is often open or guest-only, which the app refuses to pair against. Skip this section if your hangar WiFi already has a password.
+
+The fix is to run the Pi as a single-radio AP+STA bridge: it stays a client on the open hangar WiFi (`wlan0`) while broadcasting its own WPA2-protected SSID (`uap0`) on the same chip. The Midea dongle pairs to the Pi's SSID, NATs out through the hangar WiFi for the one-time cloud handshake, and lives on the Pi's AP subnet permanently. The Pi reaches the dongle directly across the AP subnet, so `setup_hvac.py` and `msmart-ng` work without any further routing.
+
+### One-shot setup
+```bash
+sudo AP_PASS=ChangeMeStrong AP_CHAN=<channel> /usr/lib/cgi-bin/remote-switch/scripts/setup-wifi-bridge.sh
+sudo reboot
+```
+
+`AP_CHAN` **must match the hangar WiFi's current channel** — single-radio AP+STA shares one channel, and hostapd will refuse to start on a mismatch. Find it once with:
+
+```bash
+iw dev wlan0 link | grep freq
+# 2412->1, 2437->6, 2462->11, etc. (5 MHz steps from 2412)
+```
+
+Optional overrides via environment variables (defaults shown):
+- `AP_SSID=hvac-pair`
+- `AP_NET=192.168.50` (Pi gets `.1`, dongle DHCPs `.50`–`.150`)
+
+### After reboot
+1. On your phone, join `hvac-pair` (the Pi's AP). Open NetHome Plus and pair the dongle, pointing it at `hvac-pair`.
+2. Find the dongle's IP on the Pi's AP subnet:
+   ```bash
+   sudo cat /var/lib/misc/dnsmasq.leases
+   ```
+3. Run `setup_hvac.py` per the [Hangar HVAC](#optional-hangar-hvac-durastar-mini-split) section below.
+
+The dongle stays on `hvac-pair` forever after this. The Midea cloud is only needed during pairing; once the local token+key are written to `.env`, you can firewall the dongle's outbound internet without losing functionality.
+
+### Caveats on the Pi Zero W's built-in radio
+The BCM43438's AP+STA mode is functional but not bulletproof — `uap0` can occasionally wedge after days/weeks and need `sudo systemctl restart hostapd`. For one low-traffic client (the Midea dongle) this is rarely a problem. If it bites you often, plug in a USB WiFi dongle (TP-Link TL-WN725N is small and well-supported on hostapd) and rerun the setup script with `wlan1` for one of the roles — moving AP and STA onto separate radios eliminates the time-slicing and channel-sharing constraints entirely.
+
+### Troubleshooting
+- **`hostapd` fails with "Could not set channel".** `wlan0` is on a different channel than `AP_CHAN`. Check current channel with `iw dev wlan0 link | grep freq`, edit `channel=` in `/etc/hostapd/hostapd.conf`, `sudo systemctl restart hostapd`. If the hangar router roams channels, pin it in the router's admin page.
+- **`uap0` doesn't appear after reboot.** Check `journalctl -u uap0` — usually means `wlan0` wasn't ready yet. `sudo systemctl restart uap0 hostapd dnsmasq` and it should come up.
+- **Midea dongle pairs but the Pi can't reach it.** Confirm the dongle got a lease (`/var/lib/misc/dnsmasq.leases`) and that you can `ping <dongle_ip>` from the Pi. If pings fail, hostapd is up but the dongle didn't actually associate — re-run the NetHome Plus pairing.
+- **Internet works on the Pi but not from the dongle.** NAT rule didn't persist. `sudo iptables -t nat -L POSTROUTING -v` should show a MASQUERADE rule on `wlan0`; if missing, re-run the setup script.
+
+---
+
 ## Optional: Hangar HVAC (Durastar mini-split)
 
 The web UI can also control a hangar Durastar/Midea mini-split (and any other Midea-OEM unit — Pioneer, MrCool, Senville, Comfee, etc.) over the LAN via the Midea WiFi dongle. This is independent of the engine-block heater described above — the heater stays on its own GPIO relay; the HVAC is reached over the LAN through the [`msmart-ng`](https://github.com/mill1000/midea-msmart) Python library.

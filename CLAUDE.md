@@ -11,6 +11,7 @@ Raspberry Pi airplane hangar controller. The web UI controls three independent d
 - `log_temp.py` — cron job: logs readings every minute, flushes weekly, rollup monthly
 - `hvac.py` — Hangar HVAC (Durastar/Midea mini-split) control via WiFi dongle on LAN, msmart-ng wrapper
 - `setup_hvac.py` — one-time pairing helper: discovers the dongle, fetches local token+key, writes HVAC_* keys to .env
+- `scripts/setup-wifi-bridge.sh` — optional one-shot installer for the AP+STA bridge that lets the Midea dongle pair on open hangar WiFi. See "WiFi bridge" below.
 - `templates/index.html` — Jinja2 template
 - `heater-flush.service` — systemd unit, flushes RAM DB to disk on commanded shutdown/reboot
 
@@ -52,6 +53,20 @@ Existing heater rows keep `action` = `"0"`/`"1"`; HVAC rows use `action` = `"set
 - `LOCATION` in `.env` can be an ICAO code (e.g. `KLMO`); lat/lon resolved via OurAirports CSV geocoding on first run.
 - mod_wsgi daemon mode auto-reloads when `switch.py` changes — `git pull` is sufficient, no Apache restart needed.
 - All schema additions use `ALTER TABLE ... ADD COLUMN` wrapped in try/except in `get_db()` / `get_ram_db()`. Don't introduce a separate migration system.
+
+## WiFi bridge (`scripts/setup-wifi-bridge.sh`)
+- **Purpose: pairing only.** The Midea dongle's pairing app (NetHome Plus) refuses to pair against an open SSID. Many hangar WiFi networks are open. The bridge lets the Pi broadcast its own WPA2 SSID for the dongle to live on, while the Pi stays a client on the open hangar WiFi and NATs the dongle's traffic out.
+- **The dongle's permanent home is the Pi's AP**, not the hangar WiFi. After the one-time cloud handshake (driven by `setup_hvac.py`), the dongle never needs the internet again — `msmart-ng` reaches it locally on the AP subnet at TCP/6444.
+- **Single-radio AP+STA shares one channel.** `AP_CHAN` in the install script must match the hangar WiFi's current channel; hostapd refuses to start on a mismatch with "Could not set channel". If the hangar router roams channels, pin it.
+- **Files written by the script:**
+  - `/etc/systemd/system/uap0.service` — creates the `uap0` virtual __ap interface on `wlan0`, gives it `192.168.50.1/24`
+  - `/etc/hostapd/hostapd.conf` — WPA2-PSK on `uap0`, channel hard-coded
+  - `/etc/dnsmasq.d/uap0.conf` — DHCP `192.168.50.50–.150` on `uap0` only (`bind-interfaces` keeps it off `wlan0`)
+  - `/etc/NetworkManager/conf.d/uap0-unmanaged.conf` (Bookworm) or `denyinterfaces uap0` in `/etc/dhcpcd.conf` (Bullseye) — keeps the system network manager from fighting hostapd over `uap0`
+  - iptables MASQUERADE on `wlan0` + FORWARD rules, persisted via `iptables-persistent` / `netfilter-persistent`
+- **Single dongle, single client.** Don't optimize this for many clients — there's exactly one (the Midea). Throughput is irrelevant; reliability over months is what matters.
+- **BCM43438 AP+STA can wedge.** Symptom: dongle drops off, hostapd looks healthy but new associations fail. Recovery: `sudo systemctl restart hostapd`. If this becomes routine, the answer is a USB WiFi dongle (e.g. TL-WN725N) so AP and STA live on separate radios — not a watchdog. A watchdog is fine as a stopgap but masks the real issue.
+- **Don't add a second AP for clients.** This bridge exists to pair an IoT device, not to serve users. Adding clients re-introduces all the throughput and channel-sharing issues we accept here.
 
 ## HVAC module specifics (`hvac.py`)
 - **Source of truth for the hangar climate.** All Durastar/Midea code lives here; nothing else imports `msmart`.

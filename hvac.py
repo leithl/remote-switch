@@ -39,9 +39,8 @@ MODE_COOL   = "cool"
 MODE_DRY    = "dry"
 MODE_HEAT   = "heat"
 MODE_FAN    = "fan"
-MODE_FREEZE = "freeze"  # maps to dev.freeze_protection (Midea's real "FP" flag)
 
-ALL_MODES = [MODE_AUTO, MODE_COOL, MODE_DRY, MODE_HEAT, MODE_FAN, MODE_FREEZE]
+ALL_MODES = [MODE_AUTO, MODE_COOL, MODE_DRY, MODE_HEAT, MODE_FAN]
 
 MODE_LABELS = {
     MODE_AUTO:   "Auto",
@@ -49,8 +48,17 @@ MODE_LABELS = {
     MODE_DRY:    "Dry",
     MODE_HEAT:   "Heat",
     MODE_FAN:    "Fan only",
-    MODE_FREEZE: "Freeze Prevention",
 }
+
+# Freeze Prevention is intentionally NOT in ALL_MODES. On the Durastar DRAW33F2A
+# the IR remote's "down twice from 60°F" sequence engages a hidden internal
+# regulator that holds the room at ~46°F — and that regulator lives in a register
+# the LAN protocol cannot read or write. The msmart `freeze_protection` SetState
+# bit is purely cosmetic on this unit (icon flag only). We therefore never set
+# it, and we don't expose FP in the web UI. The dongle still reports the flag in
+# `freeze_protection` so the UI can surface "FP icon active" if it wants to —
+# but driving it from here would just disturb the IR-set regulator. See
+# CLAUDE.md "Why FP is IR-only" for the diagnostic story.
 
 FAN_AUTO = "auto"
 FAN_LOW  = "low"
@@ -139,30 +147,25 @@ def _run_async(coro):
 def _device_to_dict(dev):
     """Translate an msmart-ng AirConditioner's live attributes to a plain dict.
 
-    When the unit's real Freeze Protection flag (`dev.freeze_protection`, exposed
-    over the LAN protocol since msmart-ng 2023.x) is set, surface MODE_FREEZE as
-    the effective mode regardless of the underlying operational_mode the firmware
-    reports — the unit displays "FP" in this state and the UI should match.
+    `freeze_protection` is reported as a separate boolean (the unit's FP icon
+    state) but is NOT surfaced as a `mode` value. See the comment at the top of
+    this module for why FP is IR-only on this Durastar.
     """
     inv_modes = {v: k for k, v in _msmart_modes().items()}
     inv_fans  = {v: k for k, v in _msmart_fans().items()}
 
     target_c = float(dev.target_temperature) if dev.target_temperature is not None else None
     indoor_c = float(dev.indoor_temperature) if dev.indoor_temperature is not None else None
-    freeze_on = bool(getattr(dev, "freeze_protection", False))
-
-    op_mode = inv_modes.get(dev.operational_mode, str(dev.operational_mode))
-    effective_mode = MODE_FREEZE if freeze_on else op_mode
 
     return {
         "power":             bool(dev.power_state),
-        "mode":              effective_mode,
+        "mode":              inv_modes.get(dev.operational_mode, str(dev.operational_mode)),
         "target_c":          target_c,
         "target_f":          round(target_c * 9 / 5 + 32, 1) if target_c is not None else None,
         "fan_speed":         inv_fans.get(dev.fan_speed, str(dev.fan_speed)),
         "indoor_c":          indoor_c,
         "indoor_f":          round(indoor_c * 9 / 5 + 32, 1) if indoor_c is not None else None,
-        "freeze_protection": freeze_on,
+        "freeze_protection": bool(getattr(dev, "freeze_protection", False)),
     }
 
 
@@ -258,10 +261,15 @@ def set_state(power=None, mode=None, target_f=None, fan_speed=None):
     """
     Apply a partial state change. Any None argument keeps the dongle's current value.
 
-    mode='freeze' enables Midea's real Freeze Protection flag — the unit's display
-    shows "FP" and the firmware holds a minimum heat output (~8°C/46°F). When freeze
-    mode is set, target/fan/operational_mode are ignored: the unit drives them
-    internally. Setting any non-freeze mode automatically clears the freeze flag.
+    Does NOT control Freeze Prevention. The msmart `freeze_protection` flag is
+    purely cosmetic on this Durastar — the real ~46°F regulator is engaged only
+    by the IR remote (down-twice from 60°F), and any LAN apply() risks disturbing
+    the hidden regulator state. So during winter, while the unit is in IR-FP,
+    avoid calling this function — it will likely cancel the FP regulator.
+
+    Unrecognized `mode` values (including the legacy 'freeze' token from old
+    schedules) are ignored — they fall through the `mode in msmart_modes` filter
+    and don't change the unit's operational_mode.
 
     Returns True on success, False on error. On success, both reported and
     commanded views are persisted so the UI can show drift.
@@ -277,27 +285,11 @@ def set_state(power=None, mode=None, target_f=None, fan_speed=None):
     except Exception:
         return False
 
-    # Normalise inputs. MODE_FREEZE is special — it maps to the real freeze_protection
-    # flag, not to operational_mode. Any other explicit mode set forces freeze off.
-    set_freeze = None  # tri-state: True (turn on), False (turn off), None (don't touch)
-    if mode == MODE_FREEZE:
-        set_freeze = True
-        # The unit handles target/fan/mode internally while in FP. Force power on,
-        # clear the rest so we don't fight the firmware.
-        power = True
-        mode = None
-        target_f = None
-        fan_speed = None
-    elif mode is not None:
-        # User explicitly chose a non-freeze mode → exit FP if it was active.
-        set_freeze = False
-
     requested = {
         "power":     bool(power) if power is not None else None,
         "mode":      mode if (mode is not None and mode in msmart_modes) else None,
         "target_f":  float(target_f) if target_f is not None else None,
         "fan_speed": fan_speed if (fan_speed is not None and fan_speed in msmart_fans) else None,
-        "freeze":    set_freeze,
     }
 
     try:
@@ -313,10 +305,6 @@ def set_state(power=None, mode=None, target_f=None, fan_speed=None):
                 dev.target_temperature = _f_to_c(requested["target_f"])
             if requested["fan_speed"] is not None:
                 dev.fan_speed = msmart_fans[requested["fan_speed"]]
-            if requested["freeze"] is not None:
-                # NB: ignore dev.supports_freeze_protection — capability flags lie on
-                # some units (msmart-ng issue #76); the SetState bit is what counts.
-                dev.freeze_protection = requested["freeze"]
 
             await dev.apply()
             return _device_to_dict(dev)
@@ -324,18 +312,9 @@ def set_state(power=None, mode=None, target_f=None, fan_speed=None):
         post = _run_async(_apply())
         _save_reported(post)
 
-        # Build commanded view by overlaying requested fields on reported result.
-        # When we requested freeze=True, force commanded mode = MODE_FREEZE so the
-        # divergence detector compares apples to apples on the next refresh.
-        commanded_mode = post["mode"]
-        if requested["freeze"] is True:
-            commanded_mode = MODE_FREEZE
-        elif requested["mode"] is not None:
-            commanded_mode = requested["mode"]
-
         commanded = {
             "power":     post["power"]     if requested["power"]     is None else requested["power"],
-            "mode":      commanded_mode,
+            "mode":      post["mode"]      if requested["mode"]      is None else requested["mode"],
             "target_c":  post["target_c"]  if requested["target_f"]  is None else _f_to_c(requested["target_f"]),
             "target_f":  post["target_f"]  if requested["target_f"]  is None else round(requested["target_f"], 1),
             "fan_speed": post["fan_speed"] if requested["fan_speed"] is None else requested["fan_speed"],
@@ -351,8 +330,6 @@ def state_for_log():
     Return integer for readings.ac_state, suitable for log_temp.py to write
     into the per-minute row. Returns None if HVAC not configured or unreachable
     (so the column stays NULL rather than mis-recorded as 0/off).
-
-    Freeze Prevention is heat work; logged as AC_STATE_HEAT.
     """
     if not is_configured():
         return None
@@ -364,7 +341,6 @@ def state_for_log():
         return AC_STATE_OFF
     return {
         MODE_HEAT:   AC_STATE_HEAT,
-        MODE_FREEZE: AC_STATE_HEAT,
         MODE_COOL:   AC_STATE_COOL,
         MODE_FAN:    AC_STATE_FAN,
         MODE_DRY:    AC_STATE_DRY,

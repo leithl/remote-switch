@@ -200,7 +200,7 @@ Requires [`msmtp`](https://marlam.de/msmtp/) to be installed and configured. The
 
 ## Scheduling
 
-The web UI includes a one-shot scheduler that can act on either the engine-block heater (turn on/off) or the hangar HVAC (mode + target temp + fan, including a one-click Freeze Prevention preset). Schedules are stored in the database and executed by the every-minute cron job — no additional setup needed. Schedules survive reboots.
+The web UI includes a one-shot scheduler that can act on either the engine-block heater (turn on/off) or the hangar HVAC (mode + target temp + fan). Schedules are stored in the database and executed by the every-minute cron job — no additional setup needed. Schedules survive reboots.
 
 ---
 
@@ -255,7 +255,7 @@ The web UI can also control a hangar Durastar/Midea mini-split (and any other Mi
 ### How it works
 - A small WiFi dongle plugs into a USB-shaped port inside the indoor unit's front panel and bridges Midea's serial protocol to a TCP service on port 6444 of the dongle's LAN IP.
 - After a one-time pairing through Midea's cloud, the Pi extracts a local `token` + `key` and from then on talks to the dongle directly on the LAN — no cloud roundtrip per command, and you can firewall the dongle off the internet.
-- The web UI's HVAC card lets you set power, mode (Heat / Cool / Auto / Dry / Fan), target temperature in °F, and fan speed. A one-click "Freeze Prevention preset" button sends Heat / 60°F / Low fan — useful for "keep the hangar from freezing" scenarios.
+- The web UI's HVAC card lets you set power, mode (Heat / Cool / Auto / Dry / Fan), target temperature in °F, and fan speed. **Freeze Prevention is intentionally not exposed in the web UI** — see [Why FP is IR-only](#why-fp-is-ir-only) below.
 - The scheduler accepts HVAC actions alongside heater actions; same `execute_epoch <= now` cron-driven dispatch.
 - The dongle is polled at most once every 30 seconds (cached in `/run/heater-hvac.json`); page loads never block on the network. If the dongle is unreachable, the UI shows the last-known state with a "stale Xs" badge instead of erroring.
 - HVAC activity is logged into `readings.ac_state` every minute and rendered on the chart as a purple band, so you can see HVAC + heater + fan + ambient temperature on one timeline.
@@ -290,8 +290,15 @@ HVAC_TOKEN=<long hex string>
 HVAC_KEY=<long hex string>
 ```
 
-### What is "Freeze Prevention"?
-The unit's real Freeze Protection flag — the same feature the IR remote drives. When active the indoor unit displays "FP" and the firmware holds a minimum heat output (~8°C / 46°F) internally; you don't need to (and can't) set a target temp or fan speed. Picking any other mode in the web UI exits the flag automatically. Ideal for "keep the hangar above freezing all winter without thinking about it."
+### Why FP is IR-only
+On the Durastar DRAW33F2A (and likely other Midea-OEM units), the IR remote's "down twice from 60°F" sequence engages an internal freeze-prevention regulator that holds the room at ~46°F minimum. The unit displays "FP" while it's active. **This regulator lives in a register the LAN protocol cannot read or write.** The msmart-ng `freeze_protection` flag we can drive over the dongle (`payload[21] & 0x80` in the SetState frame) only lights the FP icon — it does not engage the regulator. Verified by byte-for-byte StateResponse comparison plus months of probe data showing a real 46°F floor when IR-FP was active.
+
+Two consequences for this app:
+
+1. **The web UI does not expose Freeze Prevention.** A button that only flips the cosmetic flag would be misleading.
+2. **Don't touch the HVAC card while the unit is in IR-FP** (the UI shows a banner when this is the case). Any LAN `apply()` we send is a full SetState frame and will likely cancel the IR-set regulator. During winter, treat the HVAC card as read-only and use the IR remote for any climate changes.
+
+To engage real FP on this unit: with the unit on, press temperature-down on the IR remote until you reach 60°F, then press down twice more. The display shows "FP" and the unit will hold ~46°F minimum until you exit FP via the IR remote.
 
 ### Drift detection
 If someone uses the physical IR remote while you're away, the dongle's reported state diverges from what the web UI last commanded. When this happens, the HVAC card surfaces both the **Reported** state (what the unit is doing now) and **Last commanded** (what was last sent from the web), so you can see at a glance that the physical remote was used.

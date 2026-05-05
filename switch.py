@@ -287,19 +287,16 @@ def _handle(environ):
     # --- HVAC apply (immediate state change for Hangar HVAC) ---
     if qs.get("hvac_apply") == "1" and hvac.is_configured():
         hvac_mode = qs.get("hvac_mode", "")
-        if hvac_mode == hvac.MODE_FREEZE:
-            hvac.set_state(mode=hvac.MODE_FREEZE)
-        else:
-            try:
-                target_f = float(qs.get("hvac_target_f", "")) if qs.get("hvac_target_f") else None
-            except ValueError:
-                target_f = None
-            hvac.set_state(
-                power=(qs.get("hvac_power") == "1") if qs.get("hvac_power") in ("0", "1") else None,
-                mode=hvac_mode if hvac_mode in hvac.ALL_MODES else None,
-                target_f=target_f,
-                fan_speed=qs.get("hvac_fan_speed") if qs.get("hvac_fan_speed") in hvac.ALL_FANS else None,
-            )
+        try:
+            target_f = float(qs.get("hvac_target_f", "")) if qs.get("hvac_target_f") else None
+        except ValueError:
+            target_f = None
+        hvac.set_state(
+            power=(qs.get("hvac_power") == "1") if qs.get("hvac_power") in ("0", "1") else None,
+            mode=hvac_mode if hvac_mode in hvac.ALL_MODES else None,
+            target_f=target_f,
+            fan_speed=qs.get("hvac_fan_speed") if qs.get("hvac_fan_speed") in hvac.ALL_FANS else None,
+        )
         _redirect("switch.py")
 
     # --- Schedule add ---
@@ -337,16 +334,13 @@ def _handle(environ):
                     if sched_fan not in hvac.ALL_FANS:
                         sched_fan = "auto"
                     sched_power = qs.get("sched_hvac_power") == "1"
-                    if hvac_mode == hvac.MODE_FREEZE:
-                        params = {"mode": hvac.MODE_FREEZE}
-                    else:
-                        params = {
-                            "power": sched_power,
-                            "mode": hvac_mode,
-                            "fan_speed": sched_fan,
-                        }
-                        if sched_target_f is not None:
-                            params["target_f"] = sched_target_f
+                    params = {
+                        "power": sched_power,
+                        "mode": hvac_mode,
+                        "fan_speed": sched_fan,
+                    }
+                    if sched_target_f is not None:
+                        params["target_f"] = sched_target_f
                     conn = config.get_db()
                     conn.execute(
                         "INSERT OR REPLACE INTO schedules "
@@ -618,7 +612,6 @@ def _handle(environ):
         hvac_fans=[(f, hvac.FAN_LABELS[f]) for f in hvac.ALL_FANS],
         hvac_temp_min_f=hvac.TEMP_MIN_F,
         hvac_temp_max_f=hvac.TEMP_MAX_F,
-        hvac_mode_freeze=hvac.MODE_FREEZE,
     )
 
     return (
@@ -691,8 +684,10 @@ def _hvac_sched_label(params_json):
         p = json.loads(params_json)
     except (ValueError, TypeError):
         return "Set"
-    if p.get("mode") == hvac.MODE_FREEZE:
-        return hvac.MODE_LABELS[hvac.MODE_FREEZE]
+    if p.get("mode") == "freeze":
+        # Legacy schedule from before MODE_FREEZE was removed. The set_state
+        # call will silently no-op on this mode token, so flag it visibly here.
+        return "Freeze (legacy — won't run)"
     parts = []
     if p.get("power") is False:
         parts.append("Off")

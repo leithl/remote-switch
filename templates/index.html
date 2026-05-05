@@ -67,6 +67,12 @@
   {% if hvac_state.stale %}
   <p class="mb-1 small text-warning">Stale: dongle last reachable {{ hvac_state.age_secs }}s ago.</p>
   {% endif %}
+  {% if r.freeze_protection %}
+  <div class="alert alert-warning py-2 mb-2 small">
+    Unit shows <b>FP</b> (Freeze Prevention, ~46&deg;F floor) &mdash; set via the IR remote.
+    Avoid using this card while FP is active; LAN commands will likely cancel the regulator.
+  </div>
+  {% endif %}
 
   <form action="switch.py" method="GET" class="row g-2 align-items-end mt-2">
     <input type="hidden" name="hvac_apply" value="1">
@@ -80,9 +86,9 @@
     <div class="col-auto">
       <label class="form-label mb-0 small">Mode</label>
       <select name="hvac_mode" class="form-select form-select-sm">
-        {% for val, label in hvac_modes %}{% if val != hvac_mode_freeze %}
+        {% for val, label in hvac_modes %}
         <option value="{{ val }}"{% if r.mode == val %} selected{% endif %}>{{ label }}</option>
-        {% endif %}{% endfor %}
+        {% endfor %}
       </select>
     </div>
     <div class="col-auto">
@@ -104,11 +110,6 @@
     </div>
   </form>
 
-  <form action="switch.py" method="GET" class="d-inline">
-    <input type="hidden" name="hvac_apply" value="1">
-    <input type="hidden" name="hvac_mode" value="{{ hvac_mode_freeze }}">
-    <button type="submit" class="btn btn-outline-info btn-sm mt-2">Freeze Prevention preset</button>
-  </form>
 {% endif %}
 </div>
 </div>
@@ -356,16 +357,8 @@ function schedToggle() {
   if (device === 'hvac') schedHvacModeToggle();
 }
 function schedHvacModeToggle() {
-  var modeSel = document.getElementById('sched_hvac_mode');
-  if (!modeSel) return;
-  var mode = modeSel.value;
-  // Freeze Prevention preset = no extra fields
-  var isFreeze = mode === 'freeze';
-  ['sched-hvac-temp', 'sched-hvac-fan', 'sched-hvac-power'].forEach(function(cls) {
-    document.querySelectorAll('.' + cls).forEach(function(el) {
-      el.style.display = isFreeze ? 'none' : '';
-    });
-  });
+  // Reserved for future per-mode field toggling; currently every HVAC mode
+  // uses the same set of fields (temp, fan, power) so there's nothing to do.
 }
 </script>
 {% if pending_sched_rows %}

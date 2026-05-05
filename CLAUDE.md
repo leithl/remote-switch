@@ -36,8 +36,8 @@ When adding a new persistent thing, ask: how often is it written? If more than w
 ## Schedule schema (extended for HVAC)
 The `schedules` table has two columns added on top of the original heater schema:
 - `device TEXT DEFAULT 'heater'` — `'heater'` or `'hvac'`
-- `params TEXT DEFAULT ''` — JSON for HVAC schedules: `{power, mode, target_f, fan_speed}` or `{mode: "freeze"}`
-Existing heater rows keep `action` = `"0"`/`"1"`; HVAC rows use `action` = `"set"` and read everything from `params`. `log_temp.py do_log()` dispatches by device.
+- `params TEXT DEFAULT ''` — JSON for HVAC schedules: `{power, mode, target_f, fan_speed}`
+Existing heater rows keep `action` = `"0"`/`"1"`; HVAC rows use `action` = `"set"` and read everything from `params`. `log_temp.py do_log()` dispatches by device. Pre-2026-05 rows may exist with `{mode: "freeze"}` from the now-removed MODE_FREEZE feature — `set_state()` filters unknown modes through `mode in msmart_modes`, so those legacy schedules silently no-op when due (the row is still deleted from the table).
 
 ## Readings columns added for HVAC
 `readings.ac_state INTEGER` — 0=off, 1=heat, 2=cool, 3=fan, 4=dry, 5=auto. Logged every minute by cron via `hvac.state_for_log()`. `aggregate.compute_bucketed` collapses this to a binary "any non-off" band rendered in purple on the chart.
@@ -79,8 +79,8 @@ Existing heater rows keep `action` = `"0"`/`"1"`; HVAC rows use `action` = `"set
   ```
   TTL is `hvac.CACHE_TTL_SECS = 30`. `get_state()` returns `{reported, commanded, stale, age_secs, diverged}`. On dongle error, returns the stale cached view with `stale=True` instead of raising.
 - **Two-way visibility:** `set_state()` writes both `reported` (post-apply) and `commanded` (what we asked for). UI surfaces commanded only when `_diverged()` returns True (catches drift if someone uses the physical IR remote — common in this hangar).
-- **Stable mode/fan tokens** (used in `.env`, schedule `params` JSON, `?hvac_*=` query strings, and chart logic): `MODE_AUTO/COOL/DRY/HEAT/FAN/FREEZE` and `FAN_AUTO/LOW/MED/HIGH`. Don't add or rename without checking all four call sites.
-- **Freeze Prevention is the unit's REAL flag.** `MODE_FREEZE` maps to `dev.freeze_protection = True` over the LAN protocol — the same feature the IR remote drives, the unit displays "FP", and the firmware holds a minimum heat output (~8°C/46°F) internally. Capability flags (`dev.supports_freeze_protection`) are unreliable on some units (msmart-ng issue #76); we always send the SetState bit regardless. Setting any other explicit `mode` automatically clears the freeze flag — exit FP whenever the user picks a different mode. The state byte is `payload[21] bit 0x80` in msmart-ng's SetState/StateResponse if you ever need to debug at the wire level.
+- **Stable mode/fan tokens** (used in `.env`, schedule `params` JSON, `?hvac_*=` query strings, and chart logic): `MODE_AUTO/COOL/DRY/HEAT/FAN` and `FAN_AUTO/LOW/MED/HIGH`. Don't add or rename without checking all four call sites.
+- **Why FP is IR-only on this Durastar.** This is the most important non-obvious thing about the HVAC module. The IR remote's "down twice from 60°F" sequence engages a hidden internal regulator that holds the room at ~46°F minimum (the unit displays "FP", and the regulator IS doing real work — verified by months of probe data showing a 46°F floor against 32°F ambient). The msmart `freeze_protection` SetState bit (`payload[21] & 0x80`) is purely **cosmetic** on this unit — it lights the FP icon but does NOT engage the 46°F regulator. We confirmed this on 2026-05-05 by byte-for-byte diffing the StateResponse after IR-FP and after `dev.freeze_protection=True` via msmart: identical wire bytes, but only the IR path produces real freeze prevention. The dongle reports `min_target_temperature: 16` (60.8°F) and clamps any LAN target below that, so we can't even reach 46°F by setting a low target. Implications: (1) the web UI does NOT expose Freeze Prevention — it would be misleading; (2) `set_state()` never touches `dev.freeze_protection`; (3) **any LAN `apply()` while IR-FP is active will likely cancel the regulator** — the UI shows a warning banner when `freeze_protection: True` is reported. During winter, treat the HVAC card as read-only.
 - **`state_for_log()`** returns `None` (not 0) when not configured / unreachable, so the `readings.ac_state` column stays NULL rather than misreporting "off". Aggregations treat `None` as "no data, don't render".
 
 ## msmart-ng API surface (verified 2025.12.0)
@@ -100,7 +100,7 @@ The wrappers were verified against msmart-ng 2025.12.0. If you upgrade, watch th
 ## URL surface
 - Heater: `?state=0|1`
 - Fan: `?fan_state=0|1`, `?fan_mode=auto`
-- HVAC immediate apply: `?hvac_apply=1` plus `&hvac_power=0|1&hvac_mode=…&hvac_target_f=…&hvac_fan_speed=…`. Special case: `&hvac_mode=freeze` triggers the Freeze Prevention preset and ignores the other args.
+- HVAC immediate apply: `?hvac_apply=1` plus `&hvac_power=0|1&hvac_mode=…&hvac_target_f=…&hvac_fan_speed=…`. (Freeze Prevention is not exposed — see "Why FP is IR-only" above.)
 - Schedule add: `?sched_dt=YYYY-MM-DDTHH:MM&sched_device=heater|hvac` plus device-specific params (`sched_action` for heater; `sched_hvac_mode/target_f/fan_speed/power` for HVAC).
 - Schedule cancel: `?cancel_id=<created_epoch>`.
 - Chart range: `?range=7d|30d|YYYY-MM`.

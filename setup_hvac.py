@@ -22,6 +22,7 @@ the next request — no Apache restart needed.
 
 import asyncio
 import getpass
+import os
 import sys
 from pathlib import Path
 
@@ -78,13 +79,16 @@ async def _discover_authenticated():
     email    = input("NetHome Plus email: ").strip()
     password = getpass.getpass("NetHome Plus password: ")
 
+    target = (os.environ.get("HVAC_DISCOVER_TARGET") or "").strip()
+
     print("\nDiscovering & authenticating dongle (UDP broadcast + cloud handshake, ~10s)...")
+    if target:
+        print(f"  Targeting {target} (bypassing default-route broadcast).")
     try:
-        devices = await Discover.discover(
-            account=email,
-            password=password,
-            auto_connect=True,
-        )
+        kwargs = dict(account=email, password=password, auto_connect=True)
+        if target:
+            kwargs["target"] = target
+        devices = await Discover.discover(**kwargs)
     except Exception as e:
         _die(f"Discovery / cloud auth failed: {e}\n"
              "If credentials look right but auth still fails, you may be on a "
@@ -92,7 +96,13 @@ async def _discover_authenticated():
 
     if not devices:
         _die("No devices discovered. Check that the dongle is powered, paired "
-             "via NetHome Plus, and on the same subnet as the Pi.")
+             "via NetHome Plus, and reachable from the Pi.\n\n"
+             "If the dongle is on a different subnet than the Pi's default "
+             "route (e.g. it lives on the WiFi bridge AP at 192.168.50.0/24 "
+             "while wlan0 is on the hangar WiFi), the default UDP broadcast "
+             "won't reach it. Find the dongle's IP and re-run targeted:\n"
+             "  sudo cat /var/lib/misc/dnsmasq.leases\n"
+             "  sudo HVAC_DISCOVER_TARGET=192.168.50.XX python3 setup_hvac.py")
     return devices
 
 

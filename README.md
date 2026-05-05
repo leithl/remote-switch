@@ -233,7 +233,10 @@ Optional overrides via environment variables (defaults shown):
    ```bash
    sudo cat /var/lib/misc/dnsmasq.leases
    ```
-3. Run `setup_hvac.py` per the [Hangar HVAC](#optional-hangar-hvac-durastar-mini-split) section below.
+3. Run `setup_hvac.py` with `HVAC_DISCOVER_TARGET` set to that IP — `Discover.discover()` defaults to broadcasting on `wlan0` (hangar WiFi) and won't reach the dongle on the AP subnet otherwise:
+   ```bash
+   sudo HVAC_DISCOVER_TARGET=192.168.50.XX python3 /usr/lib/cgi-bin/remote-switch/setup_hvac.py
+   ```
 
 The dongle stays on `hvac-pair` forever after this. The Midea cloud is only needed during pairing; once the local token+key are written to `.env`, you can firewall the dongle's outbound internet without losing functionality.
 
@@ -241,6 +244,7 @@ The dongle stays on `hvac-pair` forever after this. The Midea cloud is only need
 The BCM43438's AP+STA mode is functional but not bulletproof — `uap0` can occasionally wedge after days/weeks and need `sudo systemctl restart hostapd`. For one low-traffic client (the Midea dongle) this is rarely a problem. If it bites you often, plug in a USB WiFi dongle (TP-Link TL-WN725N is small and well-supported on hostapd) and rerun the setup script with `wlan1` for one of the roles — moving AP and STA onto separate radios eliminates the time-slicing and channel-sharing constraints entirely.
 
 ### Troubleshooting
+- **`setup_hvac.py` reports "No devices discovered" even though the dongle paired and shows a lease in `dnsmasq.leases`.** `Discover.discover()` broadcasts on the default-route interface (`wlan0`), which doesn't reach the AP subnet. Re-run with `HVAC_DISCOVER_TARGET=<dongle_ip>` as shown in step 3 above.
 - **Phone associates to `hvac-pair` but reports "IP configuration failure" / no IP.** UFW is blocking DHCP on `uap0`. The setup script handles this automatically when run on a system with UFW already active, but if you enabled UFW *after* running the bridge installer, fix manually: `sudo ufw allow in on uap0 && sudo ufw reload`. This whitelists inbound traffic on the AP interface only — `wlan0` stays locked down.
 - **`hostapd` fails with "Could not set channel".** `wlan0` is on a different channel than `AP_CHAN`. Check current channel with `iw dev wlan0 link | grep freq`, edit `channel=` in `/etc/hostapd/hostapd.conf`, `sudo systemctl restart hostapd`. If the hangar router roams channels, pin it in the router's admin page.
 - **`uap0` doesn't appear after reboot.** Check `journalctl -u uap0` — usually means `wlan0` wasn't ready yet. `sudo systemctl restart uap0 hostapd dnsmasq` and it should come up.

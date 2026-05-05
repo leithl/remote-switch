@@ -126,6 +126,12 @@ echo "Enabling services..."
 systemctl daemon-reload
 systemctl enable uap0 hostapd dnsmasq
 
+if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+  echo "Allowing inbound traffic on uap0 through ufw (DHCP, DNS for the dongle)..."
+  ufw allow in on uap0 >/dev/null
+  ufw reload >/dev/null
+fi
+
 cat <<EOF
 
 Setup complete. Reboot to bring up the bridge:

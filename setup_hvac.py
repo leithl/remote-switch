@@ -168,12 +168,21 @@ def _update_env(ip, device_id, token, key):
 # ---------------------------------------------------------------------------
 
 async def _verify():
-    import hvac
+    # Reload hvac so it sees the .env we just wrote (in case it was imported
+    # earlier with empty HVAC_* keys).
+    import importlib, hvac
+    importlib.reload(hvac)
+
     print("\nVerifying — fetching current state from dongle...")
-    state = hvac.get_state(force=True)
-    if state is None or state.get("reported") is None:
-        _die("Verification failed — could not read state from dongle.")
-    r = state["reported"]
+    # Call the async helpers directly. hvac.get_state() is sync and wraps
+    # asyncio.run(), which would nest inside our own running loop.
+    try:
+        dev = await hvac._open_device()
+        await dev.refresh()
+        r = hvac._device_to_dict(dev)
+        hvac._save_reported(r)
+    except Exception as e:
+        _die(f"Verification failed — could not read state from dongle: {e}")
     print("OK.")
     print(f"  Power:   {'ON' if r.get('power') else 'OFF'}")
     print(f"  Mode:    {r.get('mode')}")

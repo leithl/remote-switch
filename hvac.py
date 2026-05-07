@@ -160,6 +160,11 @@ def _device_to_dict(dev):
     effective_mode = MODE_FREEZE if freeze_on else op_mode
 
     # Energy fields — None on dongles that don't reply to GetEnergyUsageCommand.
+    # total_kwh is the dongle's BCD `total_energy_usage` field, monotonic
+    # but with an unknown zero-point on this Durastar (math doesn't fit
+    # lifetime-since-install given always-FP duty through winter — see
+    # CLAUDE.md). Use for window deltas, not as an odometer. BCD-vs-binary
+    # format is device-specific (msmart-ng #154).
     power_w = None
     total_kwh = None
     try:

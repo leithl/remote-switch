@@ -40,7 +40,10 @@ The `schedules` table has two columns added on top of the original heater schema
 Existing heater rows keep `action` = `"0"`/`"1"`; HVAC rows use `action` = `"set"` and read everything from `params`. `log_temp.py do_log()` dispatches by device.
 
 ## Readings columns added for HVAC
-`readings.ac_state INTEGER` — 0=off, 1=heat, 2=cool, 3=fan, 4=dry, 5=auto. Logged every minute by cron via `hvac.state_for_log()`. `aggregate.compute_bucketed` collapses this to a binary "any non-off" band rendered in purple on the chart.
+- `readings.ac_state INTEGER` — 0=off, 1=heat, 2=cool, 3=fan, 4=dry, 5=auto. The unit's *mode*, not its *running state*. In Freeze Prevention overnight the unit sits in HEAT mode 24/7 even though the compressor cycles only briefly per hour, so this column alone overstates "HVAC on".
+- `readings.ac_power_w REAL` — instantaneous power draw from the dongle's energy meter, polled every minute. Idle baseline on the Durastar DRAW33F2A is ~60W (controller + dongle + standby); the compressor pushes it well past 100W. The chart band uses `> 100W` as the "actually running" threshold.
+- `readings.ac_total_kwh REAL` — cumulative lifetime kWh from the dongle. Subtract first/last in a window to compute kWh used. Monotonically increasing.
+- `aggregate.compute_bucketed` averages `ac_power_w` per bucket and renders it as a Watts line on the chart's right y-axis (replacing the previous binary HVAC band). Buckets at or below `aggregate.POWER_ON_THRESHOLD_W` (=100) are filtered out — the ~60W standby baseline (controller + dongle + indoor fan trickle) is treated as "off" and produces no point, so the chart only shows actual heating/cooling activity. Pre-2026-05-07 rows have NULL `ac_power_w` — those buckets also produce no point. The `ac_state` column is still logged but no longer drives any chart logic.
 
 ## Schedules
 - Stored in **disk DB only** — survive reboots with no extra effort.
@@ -74,14 +77,15 @@ Existing heater rows keep `action` = `"0"`/`"1"`; HVAC rows use `action` = `"set
 - **Async→sync bridge:** `asyncio.run(coro)` wraps every call. mod_wsgi handlers stay sync; the dongle is on the LAN so RTT is sub-second.
 - **Cache file** `/run/heater-hvac.json`:
   ```json
-  {"reported": {power, mode, target_c, target_f, fan_speed, indoor_c, indoor_f, epoch},
+  {"reported": {power, mode, target_c, target_f, fan_speed, indoor_c, indoor_f,
+                freeze_protection, power_w, total_kwh, epoch},
    "commanded": {…same fields…} | null}
   ```
-  TTL is `hvac.CACHE_TTL_SECS = 30`. `get_state()` returns `{reported, commanded, stale, age_secs, diverged}`. On dongle error, returns the stale cached view with `stale=True` instead of raising.
+  TTL is `hvac.CACHE_TTL_SECS = 30`. `get_state()` returns `{reported, commanded, stale, age_secs, diverged}`. On dongle error, returns the stale cached view with `stale=True` instead of raising. `power_w` / `total_kwh` are populated by an extra `GetEnergyUsageCommand` that `_open_device()` enables via the local `dev.enable_energy_usage_requests = True` toggle (no SetState sent).
 - **Two-way visibility:** `set_state()` writes both `reported` (post-apply) and `commanded` (what we asked for). UI surfaces commanded only when `_diverged()` returns True (catches drift if someone uses the physical IR remote — common in this hangar).
 - **Stable mode/fan tokens** (used in `.env`, schedule `params` JSON, `?hvac_*=` query strings, and chart logic): `MODE_AUTO/COOL/DRY/HEAT/FAN/FREEZE` and `FAN_AUTO/LOW/MED/HIGH`. Don't add or rename without checking all four call sites.
 - **Freeze Prevention is the unit's REAL flag.** `MODE_FREEZE` maps to `dev.freeze_protection = True` over the LAN protocol — the same feature the IR remote drives, the unit displays "FP", and the firmware holds a minimum heat output (~8°C/46°F) internally. Capability flags (`dev.supports_freeze_protection`) are unreliable on some units (msmart-ng issue #76); we always send the SetState bit regardless. Setting any other explicit `mode` automatically clears the freeze flag — exit FP whenever the user picks a different mode. The state byte is `payload[21] bit 0x80` in msmart-ng's SetState/StateResponse if you ever need to debug at the wire level.
-- **`state_for_log()`** returns `None` (not 0) when not configured / unreachable, so the `readings.ac_state` column stays NULL rather than misreporting "off". Aggregations treat `None` as "no data, don't render".
+- **`state_for_log()`** returns `{ac_state, power_w, total_kwh}` for `log_temp.py` to write into the per-minute row, or `None` when not configured / unreachable (all three columns stay NULL — aggregations treat NULL as "no data, don't render"). The dict shape lets one refresh feed three columns; don't reintroduce a separate getter.
 
 ## msmart-ng API surface (verified 2025.12.0)
 The wrappers were verified against msmart-ng 2025.12.0. If you upgrade, watch these specific symbols — past versions have moved them, and a future bump may again:
@@ -105,9 +109,11 @@ The wrappers were verified against msmart-ng 2025.12.0. If you upgrade, watch th
 - Schedule cancel: `?cancel_id=<created_epoch>`.
 - Chart range: `?range=7d|30d|YYYY-MM`.
 
-## Chart bands and colors
-- Heater (engine-block) — `rgba(220, 53, 69, 0.25)` red
-- HVAC (climate) — `rgba(168, 85, 247, 0.25)` purple
-- Fan — `rgba(13, 110, 253, 0.20)` blue
-- Cold (≤48°F) — `rgba(255, 152, 0, 0.15)` orange box annotation
-- Ambient line — `rgb(34, 197, 94)` green
+## Chart bands, lines, and colors
+- Heater band (engine-block) — `rgba(220, 53, 69, 0.25)` red
+- Fan band — `rgba(13, 110, 253, 0.20)` blue
+- Cold annotation (≤48°F) — `rgba(255, 152, 0, 0.15)` orange box
+- Hangar temp line — `rgb(75, 192, 192)` teal (left y-axis, °F)
+- Ambient line — `rgb(34, 197, 94)` green (left y-axis, °F)
+- HVAC power line — `rgb(168, 85, 247)` purple (**right y-axis, Watts**)
+- Range buttons: 1d (60s buckets, surfaces compressor cycles), 7d / 30d / monthly (15-min buckets).

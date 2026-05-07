@@ -42,8 +42,27 @@ Existing heater rows keep `action` = `"0"`/`"1"`; HVAC rows use `action` = `"set
 ## Readings columns added for HVAC
 - `readings.ac_state INTEGER` — 0=off, 1=heat, 2=cool, 3=fan, 4=dry, 5=auto. The unit's *mode*, not its *running state*. In Freeze Prevention overnight the unit sits in HEAT mode 24/7 even though the compressor cycles only briefly per hour, so this column alone overstates "HVAC on".
 - `readings.ac_power_w REAL` — instantaneous power draw from the dongle's energy meter, polled every minute. Idle baseline on the Durastar DRAW33F2A is ~60W (controller + dongle + standby); the compressor pushes it well past 100W. The chart band uses `> 100W` as the "actually running" threshold.
-- `readings.ac_total_kwh REAL` — cumulative lifetime kWh from the dongle. Subtract first/last in a window to compute kWh used. Monotonically increasing.
+- `readings.ac_total_kwh REAL` — the dongle's `total_energy_usage` BCD field, in kWh. Monotonically increasing on this Durastar. **Zero-point is unknown** — counter reads 278.25 kWh on 2026-05-07, of which ~270 kWh is just 60W standby × ~4500h since the Nov 2025 install. That leaves only ~8 kWh of compressor work, which is too small for a unit running FP through Colorado winter (rough thermal estimate: 20–60 kWh to maintain the 46°F setpoint over the hangar's ground-anchored ~44°F floor). Most likely the counter resets on some event we haven't identified yet (firmware, brief power loss); less likely, UA is at the very low end of plausible. Use for window deltas (last − first) only; treat as a counter, not an odometer. The next cold-weather compressor cycle with `ac_power_w` logged will pin down the semantics.
+  - **How verified (2026-05-07):** read-only `dev.refresh()` returned BCD=278.25 kWh, BINARY=16172.6 kWh. BCD is the correct format because BCD's real-time-power 61.4W matches the documented ~60W FP-idle baseline; BINARY's 146W does not. msmart-ng [issue #154](https://github.com/mill1000/midea-msmart/issues/154) confirms format/scale varies across Midea units, so verify per-unit. Note the Pi DS18B20 sits at ~4 ft and the indoor unit's thermistor (the FP regulator's input) is at ~12 ft — vertical stratification means the Pi reads a few °F cooler than the unit's setpoint sees, so don't infer compressor activity from `temp_c` alone.
 - `aggregate.compute_bucketed` averages `ac_power_w` per bucket and renders it as a Watts line on the chart's right y-axis (replacing the previous binary HVAC band). Buckets at or below `aggregate.POWER_ON_THRESHOLD_W` (=100) are filtered out — the ~60W standby baseline (controller + dongle + indoor fan trickle) is treated as "off" and produces no point, so the chart only shows actual heating/cooling activity. Pre-2026-05-07 rows have NULL `ac_power_w` — those buckets also produce no point. The `ac_state` column is still logged but no longer drives any chart logic.
+
+## Thermal analysis tools (established 2026-05-07)
+
+Reusable findings from the `ac_total_kwh` investigation. Save future-you the half-day of dead ends — these are direct measurements from the data on this hangar:
+
+- **Hangar τ ≈ 12.4 h** (median of 73 nighttime cooling episodes; mean 14.0, IQR 6.7–18.5). Direct measurement, not regression. Pick 4-hour windows in 22:00–06:00 MST with hangar > 50°F and monotonic drop, compute `τ_implied = mean(hangar−ambient) / drop_rate_°F_per_h`.
+- **Natural floor ≈ 43°F at any ambient ≤ 30°F.** Concrete-slab-on-grade ground-couples the hangar to the deep-ground temp (~50°F in Colorado, attenuated by the slab interface). Verify by bucketing all data by ambient and reading `temp_c`'s 5th percentile per bucket — the floor flattens around 43°F instead of tracking ambient.
+- **Idle electrical baseline ≈ 60W** at the dongle (controller + dongle + standby). Confirmed via `dev.get_real_time_power_usage()` BCD against the unit during an FP-idle period — and is what disambiguates BCD-vs-BINARY for `ac_total_kwh`.
+- **Vertical stratification matters.** Pi DS18B20 at ~4 ft; `ac_indoor_f` (the FP regulator's input) at ~12 ft. Gap widens during heat output, narrows when idle.
+- **Single-input Newton's-law regression fails** (R² ≈ 0.025) because the relevant boundary condition is air+ground blend, not air. **Don't waste time refitting that model** — use the empirical-cooling-rate approach instead.
+
+These same tools generalize to two open questions:
+
+1. **`ac_total_kwh` zero-point** — pending the next sustained cold snap (ambient < 25°F for 6+ hours) with `ac_power_w` and `ac_indoor_f` logged. Predictions to test:
+   - Counter delta over the snap matches `Σ(ac_power_w / 60)` minute by minute → counter is well-behaved short-term; long-term zero-point is some unknown reset event we'd then look for separately. Promote wording back to something concrete.
+   - Counter delta is much smaller than the power integral → there's a scaling issue beyond BCD-vs-BINARY (multiply factor on this device variant?). Investigate `EnergyDataFormat` again.
+   - `ac_indoor_f` doesn't actually hold near 46°F during the snap → FP isn't fully engaging at the unit level. Heat-budget premise was wrong; counter might be fine after all.
+2. **Exhaust fan effectiveness on hot days** — deferred to summer. Once the hangar regularly hits the 80°F fan-on threshold (`config.FAN_TEMP_THRESHOLD_C`), pull paired (fan-on, fan-off) windows at matched ambient and compare `temp_c` cooling rate. Same methodology, no new logging needed beyond what PR #14 adds.
 
 ## Schedules
 - Stored in **disk DB only** — survive reboots with no extra effort.

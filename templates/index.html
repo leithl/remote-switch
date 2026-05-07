@@ -470,13 +470,15 @@ if (data.length > 0) {
         spanGaps: true
       }, {
         // HVAC compressor power draw — bound to the right Watts axis (y1).
-        // Gaps in the data (NULL ac_power_w) render as line breaks rather
-        // than connecting across stale periods.
+        // Only buckets above the standby threshold (>100W) are present;
+        // gaps render as line breaks. pointRadius is small but non-zero so
+        // isolated single-minute cycles still show as dots when they don't
+        // have neighbors to form a line segment.
         data: powerData,
         borderColor: 'rgb(168, 85, 247)',
-        backgroundColor: 'transparent',
+        backgroundColor: 'rgb(168, 85, 247)',
         fill: false,
-        pointRadius: 0,
+        pointRadius: 2,
         tension: 0.3,
         spanGaps: false,
         yAxisID: 'y1'

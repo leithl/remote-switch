@@ -8,13 +8,13 @@
 <meta name="theme-color" content="#212529">
 <link rel="manifest" href="switch.py?manifest=1">
 <link rel="icon" href="switch.py?icon=192" type="image/svg+xml">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
 {% if enable_temp %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/dayjs@1.11.20/dayjs.min.js" integrity="sha384-DpVxUeeBWjUvUV1czyIHJAjh+jYUZFu2lLakbdua5vbwOrBGi1UgaKCHjTC+x3Ky" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/chartjs-adapter-dayjs-4@1.0.4" integrity="sha384-K2yT+FlpUIfAz5yqqqF6btJ+wPytE+Dhq+hENAQ0pPXhmelRLrf5nK5XHpQdYD+V" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0" integrity="sha384-dwwI6ICEN/0ZQlS5owhUa/6ZzvwUPmjH45bFVCAcjgjTulbHJvlE+TGU3g1k0N3R" crossorigin="anonymous"></script>
 {% endif %}
 </head>
 <body>
@@ -152,7 +152,7 @@
     <span class="ms-2 small text-muted"><span style="display:inline-block;width:20px;border-top:2px solid rgb(168,85,247);vertical-align:middle"></span> HVAC W</span>
   </div>
   <canvas id="tempChart"></canvas>
-  <button id="resetZoom" style="display:none" class="btn btn-sm btn-outline-secondary mt-2" onclick="tempChart.resetZoom()">Reset zoom</button>
+  <button id="resetZoom" style="display:none" class="btn btn-sm btn-outline-secondary mt-2">Reset zoom</button>
   <p id="noChartData" style="display:none" class="text-muted mb-0">No temperature history yet. Data will appear after the logging cron job runs.</p>
 </div>
 </div>
@@ -387,6 +387,7 @@ function schedHvacModeToggle() {
 </div>
 {% if enable_temp %}
 <script>
+document.addEventListener('DOMContentLoaded', function() {
 var data = {{ chart_data | tojson }};
 var heaterRanges = {{ heater_ranges | tojson }};
 var coldRanges = {{ cold_ranges | tojson }};
@@ -415,16 +416,25 @@ function buildRangeData(data, ranges) {
 }
 var heaterData = buildRangeData(data, heaterRanges);
 var fanData = buildRangeData(data, fanRanges);
-var annotations = {};
-coldRanges.forEach(function(r, i) {
-  annotations['c' + i] = {
-    type: 'box',
-    xMin: r.xMin,
-    xMax: r.xMax,
-    backgroundColor: 'rgba(255, 152, 0, 0.15)',
-    borderWidth: 0
-  };
-});
+// Inline cold-band plugin: replaces chartjs-plugin-annotation (~12 KB) for
+// the single use case of drawing orange boxes over cold-temp ranges.
+var coldBandPlugin = {
+  id: 'coldBand',
+  beforeDatasetsDraw: function(chart) {
+    if (!coldRanges.length) return;
+    var ctx = chart.ctx;
+    var area = chart.chartArea;
+    var xScale = chart.scales.x;
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 152, 0, 0.15)';
+    coldRanges.forEach(function(r) {
+      var x0 = Math.max(area.left, xScale.getPixelForValue(r.xMin));
+      var x1 = Math.min(area.right, xScale.getPixelForValue(r.xMax));
+      if (x1 > x0) ctx.fillRect(x0, area.top, x1 - x0, area.bottom - area.top);
+    });
+    ctx.restore();
+  }
+};
 if (data.length > 0) {
   var tempsF = data.map(function(d) { return d.y; });
   ambientData.forEach(function(d) { if (d.y !== null && d.y !== undefined) tempsF.push(d.y); });
@@ -488,7 +498,6 @@ if (data.length > 0) {
       responsive: true,
       plugins: {
         legend: { display: false },
-        annotation: { drawTime: 'beforeDatasetsDraw', annotations: annotations },
         zoom: {
           zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
           pan: { enabled: true, mode: 'x' }
@@ -513,13 +522,17 @@ if (data.length > 0) {
           title: { display: true, text: 'Watts' }
         }
       }
-    }
+    },
+    plugins: [coldBandPlugin]
   });
-  document.getElementById('resetZoom').style.display = '';
+  var resetBtn = document.getElementById('resetZoom');
+  resetBtn.style.display = '';
+  resetBtn.addEventListener('click', function() { tempChart.resetZoom(); });
 } else {
   document.getElementById('tempChart').style.display = 'none';
   document.getElementById('noChartData').style.display = 'block';
 }
+});
 </script>
 {% endif %}
 <style>

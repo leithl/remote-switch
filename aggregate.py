@@ -7,6 +7,12 @@ Shared by switch.py (live chart rendering) and log_temp.py (monthly rollup).
 from collections import deque
 from statistics import mean
 
+# Watts threshold for "HVAC actually running" — below this is standby
+# (controller + dongle + indoor fan trickle, baseline ~60W on the Durastar).
+# Used to filter the chart's power line and to count compressor-on minutes
+# in runtime_stats. 101W is on; 100W is off.
+POWER_ON_THRESHOLD_W = 100
+
 
 def compute(rows, cutoff, chart_end):
     """
@@ -111,11 +117,13 @@ def compute(rows, cutoff, chart_end):
             if fan_state == 1:
                 fan_on_mins += 1
 
-        # --- HVAC power (>100W means compressor / substantial fan running) ---
+        # --- HVAC power — only running minutes contribute to the chart line.
+        # Standby (~60W) gets filtered out so the chart only shows actual
+        # heating/cooling activity rather than a constant low baseline.
         if ac_power_w is not None:
             total_hvac_mins += 1
-            power_buckets.setdefault(b, []).append(ac_power_w)
-            if ac_power_w > 100:
+            if ac_power_w > POWER_ON_THRESHOLD_W:
+                power_buckets.setdefault(b, []).append(ac_power_w)
                 hvac_running_mins += 1
 
         # --- ambient ---
@@ -304,8 +312,10 @@ def compute_bucketed(rows, cutoff, chart_end, bucket_secs=900):
             if fan_on:
                 fan_last = b
 
-        # HVAC power line — emit a point only when we have data; gaps render as breaks.
-        if avg_ac_power_w is not None:
+        # HVAC power line — only plot buckets where the avg watts crossed the
+        # "running" threshold. Buckets that averaged at or below standby get
+        # no point (they'd just be a constant ~60W floor of noise).
+        if avg_ac_power_w is not None and avg_ac_power_w > POWER_ON_THRESHOLD_W:
             power_data.append({"x": b * 1000, "y": round(avg_ac_power_w, 1)})
 
         # Ambient (4-bucket rolling avg)

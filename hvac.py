@@ -365,17 +365,19 @@ def set_state(power=None, mode=None, target_f=None, fan_speed=None):
 def state_for_log():
     """
     Return a dict for log_temp.py to write into the per-minute row, or None
-    if HVAC is not configured / unreachable (so all three columns stay NULL
+    if HVAC is not configured / unreachable (so all four columns stay NULL
     rather than mis-recorded as 0/off).
 
     Shape:
-        {"ac_state": int, "power_w": float | None, "total_kwh": float | None}
+        {"ac_state": int, "power_w": float | None,
+         "total_kwh": float | None, "indoor_f": float | None}
 
     `ac_state` is the legacy mode→int mapping; Freeze Prevention is heat work,
     so it's logged as AC_STATE_HEAT. `power_w` is the cleaner "actually running"
     signal — readings above ~100W indicate the compressor (or substantial fan)
-    is drawing power. The aggregator prefers power_w when present and falls
-    back to ac_state for rows logged before this column was added.
+    is drawing power. `indoor_f` is the unit's own ceiling-mounted thermistor
+    (the FP regulator's input) and complements the floor-level DS18B20 in
+    `temp_c`; the gap between them is the vertical-stratification signal.
     """
     if not is_configured():
         return None
@@ -398,6 +400,7 @@ def state_for_log():
         "ac_state":  ac_state,
         "power_w":   r.get("power_w"),
         "total_kwh": r.get("total_kwh"),
+        "indoor_f":  r.get("indoor_f"),
     }
 
 

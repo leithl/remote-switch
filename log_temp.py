@@ -236,21 +236,22 @@ def do_log():
             except (PermissionError, OSError):
                 pass
 
-    # Read HVAC mode + energy. Returns dict {ac_state, power_w, total_kwh},
-    # or None if the dongle isn't configured / reachable (all three columns
-    # stay NULL in that case).
+    # Read HVAC mode + energy + indoor thermistor. Returns dict
+    # {ac_state, power_w, total_kwh, indoor_f}, or None if the dongle isn't
+    # configured / reachable (all four columns stay NULL in that case).
     hvac_log = hvac.state_for_log()
     ac_state     = hvac_log["ac_state"]  if hvac_log else None
     ac_power_w   = hvac_log["power_w"]   if hvac_log else None
     ac_total_kwh = hvac_log["total_kwh"] if hvac_log else None
+    ac_indoor_f  = hvac_log["indoor_f"]  if hvac_log else None
 
     # Write reading to RAM db
     ram_conn = config.get_ram_db()
     ram_conn.execute(
         "INSERT OR REPLACE INTO readings "
-        "(epoch, temp_c, heater_state, ambient_c, fan_state, ac_state, ac_power_w, ac_total_kwh) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (now_epoch, temp_c, heater_state, ambient_c, fan_state, ac_state, ac_power_w, ac_total_kwh)
+        "(epoch, temp_c, heater_state, ambient_c, fan_state, ac_state, ac_power_w, ac_total_kwh, ac_indoor_f) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (now_epoch, temp_c, heater_state, ambient_c, fan_state, ac_state, ac_power_w, ac_total_kwh, ac_indoor_f)
     )
     ram_conn.commit()
     ram_conn.close()

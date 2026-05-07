@@ -246,7 +246,8 @@ CREATE TABLE IF NOT EXISTS readings (
     fan_state     INTEGER,
     ac_state      INTEGER,
     ac_power_w    REAL,
-    ac_total_kwh  REAL
+    ac_total_kwh  REAL,
+    ac_indoor_f   REAL
 );
 """
 
@@ -282,6 +283,7 @@ def get_ram_db():
         "ALTER TABLE readings ADD COLUMN ac_state INTEGER",
         "ALTER TABLE readings ADD COLUMN ac_power_w REAL",
         "ALTER TABLE readings ADD COLUMN ac_total_kwh REAL",
+        "ALTER TABLE readings ADD COLUMN ac_indoor_f REAL",
     ):
         try:
             conn.execute(col_sql)
@@ -308,6 +310,7 @@ def get_db():
         "ALTER TABLE readings ADD COLUMN ac_state INTEGER",
         "ALTER TABLE readings ADD COLUMN ac_power_w REAL",
         "ALTER TABLE readings ADD COLUMN ac_total_kwh REAL",
+        "ALTER TABLE readings ADD COLUMN ac_indoor_f REAL",
         "ALTER TABLE schedules ADD COLUMN device TEXT DEFAULT 'heater'",
         "ALTER TABLE schedules ADD COLUMN params TEXT DEFAULT ''",
     ):
@@ -327,7 +330,8 @@ def get_db():
                 fan_state     INTEGER,
                 ac_state      INTEGER,
                 ac_power_w    REAL,
-                ac_total_kwh  REAL
+                ac_total_kwh  REAL,
+                ac_indoor_f   REAL
             );
         """)
         for col_sql in (
@@ -335,6 +339,7 @@ def get_db():
             "ALTER TABLE ram.readings ADD COLUMN ac_state INTEGER",
             "ALTER TABLE ram.readings ADD COLUMN ac_power_w REAL",
             "ALTER TABLE ram.readings ADD COLUMN ac_total_kwh REAL",
+            "ALTER TABLE ram.readings ADD COLUMN ac_indoor_f REAL",
         ):
             try:
                 conn.execute(col_sql)

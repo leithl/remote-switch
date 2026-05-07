@@ -128,6 +128,11 @@ async def _open_device():
         e["HVAC_TOKEN"].strip(),
         e["HVAC_KEY"].strip(),
     )
+    # Local toggle (no SetState sent to the unit). Adds a GetEnergyUsageCommand
+    # to each refresh() so power_w / total_kwh get populated on this Durastar.
+    # Idle draw is ~60W; compressor cycles push it well past 100W. Lets us
+    # distinguish "powered on, idle in FP" from "actively heating".
+    dev.enable_energy_usage_requests = True
     return dev
 
 
@@ -154,6 +159,15 @@ def _device_to_dict(dev):
     op_mode = inv_modes.get(dev.operational_mode, str(dev.operational_mode))
     effective_mode = MODE_FREEZE if freeze_on else op_mode
 
+    # Energy fields — None on dongles that don't reply to GetEnergyUsageCommand.
+    power_w = None
+    total_kwh = None
+    try:
+        power_w = dev.get_real_time_power_usage()
+        total_kwh = dev.get_total_energy_usage()
+    except Exception:
+        pass
+
     return {
         "power":             bool(dev.power_state),
         "mode":              effective_mode,
@@ -163,6 +177,8 @@ def _device_to_dict(dev):
         "indoor_c":          indoor_c,
         "indoor_f":          round(indoor_c * 9 / 5 + 32, 1) if indoor_c is not None else None,
         "freeze_protection": freeze_on,
+        "power_w":           round(float(power_w), 1) if power_w is not None else None,
+        "total_kwh":         round(float(total_kwh), 2) if total_kwh is not None else None,
     }
 
 
@@ -348,11 +364,18 @@ def set_state(power=None, mode=None, target_f=None, fan_speed=None):
 
 def state_for_log():
     """
-    Return integer for readings.ac_state, suitable for log_temp.py to write
-    into the per-minute row. Returns None if HVAC not configured or unreachable
-    (so the column stays NULL rather than mis-recorded as 0/off).
+    Return a dict for log_temp.py to write into the per-minute row, or None
+    if HVAC is not configured / unreachable (so all three columns stay NULL
+    rather than mis-recorded as 0/off).
 
-    Freeze Prevention is heat work; logged as AC_STATE_HEAT.
+    Shape:
+        {"ac_state": int, "power_w": float | None, "total_kwh": float | None}
+
+    `ac_state` is the legacy mode→int mapping; Freeze Prevention is heat work,
+    so it's logged as AC_STATE_HEAT. `power_w` is the cleaner "actually running"
+    signal — readings above ~100W indicate the compressor (or substantial fan)
+    is drawing power. The aggregator prefers power_w when present and falls
+    back to ac_state for rows logged before this column was added.
     """
     if not is_configured():
         return None
@@ -361,15 +384,21 @@ def state_for_log():
         return None
     r = s["reported"]
     if not r.get("power"):
-        return AC_STATE_OFF
+        ac_state = AC_STATE_OFF
+    else:
+        ac_state = {
+            MODE_HEAT:   AC_STATE_HEAT,
+            MODE_FREEZE: AC_STATE_HEAT,
+            MODE_COOL:   AC_STATE_COOL,
+            MODE_FAN:    AC_STATE_FAN,
+            MODE_DRY:    AC_STATE_DRY,
+            MODE_AUTO:   AC_STATE_AUTO,
+        }.get(r.get("mode"), AC_STATE_OFF)
     return {
-        MODE_HEAT:   AC_STATE_HEAT,
-        MODE_FREEZE: AC_STATE_HEAT,
-        MODE_COOL:   AC_STATE_COOL,
-        MODE_FAN:    AC_STATE_FAN,
-        MODE_DRY:    AC_STATE_DRY,
-        MODE_AUTO:   AC_STATE_AUTO,
-    }.get(r.get("mode"), AC_STATE_OFF)
+        "ac_state":  ac_state,
+        "power_w":   r.get("power_w"),
+        "total_kwh": r.get("total_kwh"),
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -348,21 +348,22 @@ def query_readings(conn, since_epoch, until_epoch):
     """
     Return rows from both disk and RAM (if attached) for the given epoch range.
     UNION (not UNION ALL) auto-deduplicates by epoch value.
+
+    Row shape: (epoch, temp_c, heater_state, ambient_c, fan_state, ac_power_w).
+    ac_state is not returned — chart logic now uses ac_power_w directly to
+    build the power line. Pre-2026-05-07 rows have NULL ac_power_w.
     """
+    cols = "epoch, temp_c, heater_state, ambient_c, fan_state, ac_power_w"
     if _has_ram(conn):
-        sql = """
-            SELECT epoch, temp_c, heater_state, ambient_c, fan_state, ac_state FROM readings
-            WHERE epoch >= ? AND epoch < ?
-            UNION
-            SELECT epoch, temp_c, heater_state, ambient_c, fan_state, ac_state FROM ram.readings
-            WHERE epoch >= ? AND epoch < ?
-            ORDER BY epoch
-        """
+        sql = (
+            f"SELECT {cols} FROM readings WHERE epoch >= ? AND epoch < ?"
+            f" UNION SELECT {cols} FROM ram.readings WHERE epoch >= ? AND epoch < ?"
+            " ORDER BY epoch"
+        )
         return conn.execute(sql, (since_epoch, until_epoch, since_epoch, until_epoch)).fetchall()
     else:
         return conn.execute(
-            "SELECT epoch, temp_c, heater_state, ambient_c, fan_state, ac_state FROM readings "
-            "WHERE epoch >= ? AND epoch < ? ORDER BY epoch",
+            f"SELECT {cols} FROM readings WHERE epoch >= ? AND epoch < ? ORDER BY epoch",
             (since_epoch, until_epoch)
         ).fetchall()
 
@@ -379,25 +380,17 @@ def query_bucketed(conn, since_epoch, until_epoch, bucket_secs=900):
     (0.0–1.0), or None if heater_state was never logged in this bucket.
     """
     bs = bucket_secs
-    # ac_active = fraction of minutes in the bucket the HVAC was actually
-    # drawing > 100W (i.e. compressor / substantial fan running, not just
-    # standby ~60W). Pre-2026-05-07 rows have NULL ac_power_w — they tell us
-    # the unit was *in a mode*, not whether the compressor was running, so we
-    # return NULL there ("unknown") rather than misleadingly counting them
-    # as on. AVG() ignores NULLs, and aggregate.compute_bucketed skips
-    # buckets where avg_ac_active is None — so historical periods render
-    # with no band rather than a fake solid one.
-    ac_active_expr = (
-        "CASE WHEN ac_power_w IS NULL THEN NULL "
-        "WHEN ac_power_w > 100 THEN 1.0 "
-        "ELSE 0.0 END"
-    )
+    # AVG(ac_power_w) is the average compressor draw over the bucket.
+    # Pre-2026-05-07 rows have NULL ac_power_w — AVG() ignores NULLs, so a
+    # bucket from before this column existed just yields NULL avg_ac_power_w
+    # (rendered as a gap in the power line). The chart no longer renders an
+    # HVAC band; the power line replaces it.
     select = (
         f"(epoch/{bs})*{bs},"
         " AVG(temp_c), AVG(ambient_c), AVG(heater_state), AVG(fan_state),"
-        f" AVG({ac_active_expr})"
+        " AVG(ac_power_w)"
     )
-    inner_cols = "epoch, temp_c, heater_state, ambient_c, fan_state, ac_state, ac_power_w"
+    inner_cols = "epoch, temp_c, heater_state, ambient_c, fan_state, ac_power_w"
     group = f"GROUP BY (epoch/{bs})*{bs} ORDER BY (epoch/{bs})*{bs}"
     if _has_ram(conn):
         sql = (

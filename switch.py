@@ -461,10 +461,19 @@ def _handle(environ):
 
     # --- Range / chart ---
     range_param = qs.get("range", "7d")
-    if range_param not in ("7d", "30d") and not _is_valid_month(range_param):
+    if range_param not in ("1d", "7d", "30d") and not _is_valid_month(range_param):
         range_param = "7d"
 
-    if range_param == "30d":
+    # 1d view uses 60s buckets so the power line shows compressor cycles.
+    # Other ranges stay at 15-min (900s) buckets — denser would be wasted
+    # pixels and slower to render.
+    bucket_secs = 60 if range_param == "1d" else 900
+
+    if range_param == "1d":
+        chart_cutoff = now_epoch - 86400
+        chart_end_epoch = now_epoch
+        chart_title = "Temperature - Last 24 Hours"
+    elif range_param == "30d":
         chart_cutoff = now_epoch - 30 * 86400
         chart_end_epoch = now_epoch
         chart_title = "Temperature - Last 30 Days"
@@ -489,10 +498,10 @@ def _handle(environ):
 
     chart_data = []
     heater_ranges = []
-    hvac_ranges = []
     cold_ranges = []
     fan_ranges = []
     ambient_data = []
+    power_data = []
     months_data = []
 
     if enable_temp:
@@ -508,21 +517,23 @@ def _handle(environ):
                 cached_result = json.loads(cached[0])
                 chart_data = cached_result.get("chart_data", [])
                 heater_ranges = cached_result.get("heater_ranges", [])
-                hvac_ranges = cached_result.get("hvac_ranges", [])
                 cold_ranges = cached_result.get("cold_ranges", [])
                 fan_ranges = cached_result.get("fan_ranges", [])
                 ambient_data = cached_result.get("ambient_data", [])
+                power_data = cached_result.get("power_data", [])
                 chart_from_cache = True
 
         if not chart_from_cache:
-            bucketed = config.query_bucketed(conn, chart_cutoff, chart_end_epoch)
-            live_result = aggregate.compute_bucketed(bucketed, chart_cutoff, chart_end_epoch)
+            bucketed = config.query_bucketed(conn, chart_cutoff, chart_end_epoch, bucket_secs=bucket_secs)
+            live_result = aggregate.compute_bucketed(
+                bucketed, chart_cutoff, chart_end_epoch, bucket_secs=bucket_secs
+            )
             chart_data = live_result["chart_data"]
             heater_ranges = live_result["heater_ranges"]
-            hvac_ranges = live_result.get("hvac_ranges", [])
             cold_ranges = live_result["cold_ranges"]
             fan_ranges = live_result.get("fan_ranges", [])
             ambient_data = live_result["ambient_data"]
+            power_data = live_result.get("power_data", [])
 
         # Build per-month stats (13 months) with batch queries
         month_meta = []
@@ -602,10 +613,10 @@ def _handle(environ):
         chart_title=chart_title,
         chart_data=chart_data,
         heater_ranges=heater_ranges,
-        hvac_ranges=hvac_ranges,
         cold_ranges=cold_ranges,
         fan_ranges=fan_ranges,
         ambient_data=ambient_data,
+        power_data=power_data,
         months_data=months_data,
         sched_msg=sched_msg,
         pending_sched_rows=pending_sched_rows,

@@ -495,8 +495,50 @@ if (data.length > 0) {
     },
     options: {
       responsive: true,
+      // Tooltip triggers anywhere along the x-axis and shows every dataset
+      // that has a value at that time. Datasets with null y at this x are
+      // hidden by `tooltip.filter`, which collapses the heater/fan/HVAC-W
+      // bands into "Heater on" / "Fan on" / "HVAC: NW" presence labels and
+      // skips them when off. The cold band is a custom plugin, not a
+      // dataset, so its label is appended via tooltip.callbacks.afterBody.
+      interaction: {
+        mode: 'index',
+        intersect: false
+      },
       plugins: {
         legend: { display: false },
+        tooltip: {
+          filter: function(item) {
+            return item.parsed.y !== null && item.parsed.y !== undefined;
+          },
+          callbacks: {
+            label: function(item) {
+              var idx = item.datasetIndex;
+              if (idx === 0) return 'Hangar: ' + item.parsed.y.toFixed(1) + '°F';
+              if (idx === 1) return 'Heater on';
+              if (idx === 2) return 'Fan on';
+              if (idx === 3) return 'Ambient: ' + item.parsed.y.toFixed(1) + '°F';
+              if (idx === 4) return 'HVAC: ' + item.parsed.y.toFixed(0) + ' W';
+              return '';
+            },
+            labelColor: function(item) {
+              if (item.datasetIndex === 1) return { borderColor: 'rgba(220, 53, 69, 0.5)', backgroundColor: 'rgba(220, 53, 69, 0.5)' };
+              if (item.datasetIndex === 2) return { borderColor: 'rgba(13, 110, 253, 0.5)', backgroundColor: 'rgba(13, 110, 253, 0.5)' };
+              var c = item.dataset.borderColor;
+              return { borderColor: c, backgroundColor: c };
+            },
+            afterBody: function(items) {
+              if (!items.length || !coldRanges.length) return [];
+              var x = items[0].parsed.x;
+              for (var i = 0; i < coldRanges.length; i++) {
+                if (x >= coldRanges[i].xMin && x <= coldRanges[i].xMax) {
+                  return ['≤ 48°F'];
+                }
+              }
+              return [];
+            }
+          }
+        },
         zoom: {
           zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
           pan: { enabled: true, mode: 'x' }

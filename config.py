@@ -244,7 +244,9 @@ CREATE TABLE IF NOT EXISTS readings (
     heater_state  INTEGER,
     ambient_c     REAL,
     fan_state     INTEGER,
-    ac_state      INTEGER
+    ac_state      INTEGER,
+    ac_power_w    REAL,
+    ac_total_kwh  REAL
 );
 """
 
@@ -278,6 +280,8 @@ def get_ram_db():
     for col_sql in (
         "ALTER TABLE readings ADD COLUMN fan_state INTEGER",
         "ALTER TABLE readings ADD COLUMN ac_state INTEGER",
+        "ALTER TABLE readings ADD COLUMN ac_power_w REAL",
+        "ALTER TABLE readings ADD COLUMN ac_total_kwh REAL",
     ):
         try:
             conn.execute(col_sql)
@@ -302,6 +306,8 @@ def get_db():
     for col_sql in (
         "ALTER TABLE readings ADD COLUMN fan_state INTEGER",
         "ALTER TABLE readings ADD COLUMN ac_state INTEGER",
+        "ALTER TABLE readings ADD COLUMN ac_power_w REAL",
+        "ALTER TABLE readings ADD COLUMN ac_total_kwh REAL",
         "ALTER TABLE schedules ADD COLUMN device TEXT DEFAULT 'heater'",
         "ALTER TABLE schedules ADD COLUMN params TEXT DEFAULT ''",
     ):
@@ -319,12 +325,16 @@ def get_db():
                 heater_state  INTEGER,
                 ambient_c     REAL,
                 fan_state     INTEGER,
-                ac_state      INTEGER
+                ac_state      INTEGER,
+                ac_power_w    REAL,
+                ac_total_kwh  REAL
             );
         """)
         for col_sql in (
             "ALTER TABLE ram.readings ADD COLUMN fan_state INTEGER",
             "ALTER TABLE ram.readings ADD COLUMN ac_state INTEGER",
+            "ALTER TABLE ram.readings ADD COLUMN ac_power_w REAL",
+            "ALTER TABLE ram.readings ADD COLUMN ac_total_kwh REAL",
         ):
             try:
                 conn.execute(col_sql)
@@ -369,23 +379,30 @@ def query_bucketed(conn, since_epoch, until_epoch, bucket_secs=900):
     (0.0–1.0), or None if heater_state was never logged in this bucket.
     """
     bs = bucket_secs
-    # ac_active = 1.0 when HVAC is doing anything (mode != off); averaged over
-    # the bucket gives the fraction of minutes the HVAC was on. Multi-mode
-    # detail (heat vs cool) is dropped at this resolution to keep the chart
-    # band binary like heater_state / fan_state.
+    # ac_active = fraction of minutes in the bucket the HVAC was actually
+    # drawing > 100W (i.e. compressor / substantial fan running, not just
+    # standby ~60W). For rows logged before ac_power_w existed, fall back to
+    # "any non-off mode" via ac_state so the historical chart band stays put.
+    # Multi-mode detail (heat vs cool) is dropped at this resolution to keep
+    # the chart band binary like heater_state / fan_state.
+    ac_active_expr = (
+        "CASE WHEN COALESCE(ac_power_w > 100, ac_state > 0) "
+        "THEN 1.0 ELSE 0.0 END"
+    )
     select = (
         f"(epoch/{bs})*{bs},"
         " AVG(temp_c), AVG(ambient_c), AVG(heater_state), AVG(fan_state),"
-        " AVG(CASE WHEN ac_state > 0 THEN 1.0 ELSE 0.0 END)"
+        f" AVG({ac_active_expr})"
     )
+    inner_cols = "epoch, temp_c, heater_state, ambient_c, fan_state, ac_state, ac_power_w"
     group = f"GROUP BY (epoch/{bs})*{bs} ORDER BY (epoch/{bs})*{bs}"
     if _has_ram(conn):
         sql = (
             f"SELECT {select} FROM ("
-            "SELECT epoch, temp_c, heater_state, ambient_c, fan_state, ac_state FROM readings"
+            f"SELECT {inner_cols} FROM readings"
             " WHERE epoch >= ? AND epoch < ?"
             " UNION"
-            " SELECT epoch, temp_c, heater_state, ambient_c, fan_state, ac_state FROM ram.readings"
+            f" SELECT {inner_cols} FROM ram.readings"
             " WHERE epoch >= ? AND epoch < ?"
             f") {group}"
         )

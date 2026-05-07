@@ -43,7 +43,7 @@ Existing heater rows keep `action` = `"0"`/`"1"`; HVAC rows use `action` = `"set
 - `readings.ac_state INTEGER` — 0=off, 1=heat, 2=cool, 3=fan, 4=dry, 5=auto. The unit's *mode*, not its *running state*. In Freeze Prevention overnight the unit sits in HEAT mode 24/7 even though the compressor cycles only briefly per hour, so this column alone overstates "HVAC on".
 - `readings.ac_power_w REAL` — instantaneous power draw from the dongle's energy meter, polled every minute. Idle baseline on the Durastar DRAW33F2A is ~60W (controller + dongle + standby); the compressor pushes it well past 100W. The chart band uses `> 100W` as the "actually running" threshold.
 - `readings.ac_total_kwh REAL` — cumulative lifetime kWh from the dongle. Subtract first/last in a window to compute kWh used. Monotonically increasing.
-- `aggregate.compute_bucketed` collapses these into a binary "compressor on" band, preferring `ac_power_w > 100` and falling back to `ac_state > 0` for rows logged before 2026-05-07 (when ac_power_w didn't exist yet).
+- `aggregate.compute_bucketed` collapses these into a binary "compressor on" band using `ac_power_w > 100`. Pre-2026-05-07 rows have NULL `ac_power_w` and render as no band — they tell us the unit was in a mode, not whether the compressor was actually running, so claiming "on" would be misleading.
 
 ## Schedules
 - Stored in **disk DB only** — survive reboots with no extra effort.

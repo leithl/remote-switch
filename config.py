@@ -381,13 +381,16 @@ def query_bucketed(conn, since_epoch, until_epoch, bucket_secs=900):
     bs = bucket_secs
     # ac_active = fraction of minutes in the bucket the HVAC was actually
     # drawing > 100W (i.e. compressor / substantial fan running, not just
-    # standby ~60W). For rows logged before ac_power_w existed, fall back to
-    # "any non-off mode" via ac_state so the historical chart band stays put.
-    # Multi-mode detail (heat vs cool) is dropped at this resolution to keep
-    # the chart band binary like heater_state / fan_state.
+    # standby ~60W). Pre-2026-05-07 rows have NULL ac_power_w — they tell us
+    # the unit was *in a mode*, not whether the compressor was running, so we
+    # return NULL there ("unknown") rather than misleadingly counting them
+    # as on. AVG() ignores NULLs, and aggregate.compute_bucketed skips
+    # buckets where avg_ac_active is None — so historical periods render
+    # with no band rather than a fake solid one.
     ac_active_expr = (
-        "CASE WHEN COALESCE(ac_power_w > 100, ac_state > 0) "
-        "THEN 1.0 ELSE 0.0 END"
+        "CASE WHEN ac_power_w IS NULL THEN NULL "
+        "WHEN ac_power_w > 100 THEN 1.0 "
+        "ELSE 0.0 END"
     )
     select = (
         f"(epoch/{bs})*{bs},"

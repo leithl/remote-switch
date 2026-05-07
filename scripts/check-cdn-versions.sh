@@ -10,8 +10,7 @@ cd "$(dirname "$0")/.."
 pkgs=(
   bootstrap
   chart.js
-  dayjs
-  chartjs-adapter-dayjs-4
+  chartjs-adapter-date-fns
   chartjs-plugin-zoom
 )
 

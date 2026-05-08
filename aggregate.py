@@ -8,10 +8,12 @@ from collections import deque
 from statistics import mean
 
 # Watts threshold for "HVAC actually running" — below this is standby
-# (controller + dongle + indoor fan trickle, baseline ~60W on the Durastar).
-# Used to filter the chart's power line and to count compressor-on minutes
-# in runtime_stats. 101W is on; 100W is off.
-POWER_ON_THRESHOLD_W = 100
+# (controller + indoor fan + dongle, baseline ~146W on this Durastar with
+# the BINARY-format energy reads). Used to filter the chart's power line and
+# to count compressor-on minutes in runtime_stats. 201W is on; 200W is off.
+# Margin above the 146W idle covers normal idle-power jitter; compressor
+# kicking in pushes well past 200W.
+POWER_ON_THRESHOLD_W = 200
 
 
 def compute(rows, cutoff, chart_end):

@@ -160,16 +160,25 @@ def _device_to_dict(dev):
     effective_mode = MODE_FREEZE if freeze_on else op_mode
 
     # Energy fields — None on dongles that don't reply to GetEnergyUsageCommand.
-    # total_kwh is the dongle's BCD `total_energy_usage` field, monotonic
-    # but with an unknown zero-point on this Durastar (math doesn't fit
-    # lifetime-since-install given always-FP duty through winter — see
-    # CLAUDE.md). Use for window deltas, not as an odometer. BCD-vs-binary
-    # format is device-specific (msmart-ng #154).
+    # On this Durastar the BINARY format is the correct one (msmart-ng #154
+    # documents that this is device-dependent). 2026-05-08 evidence: BCD's
+    # 25h delta was 0.88 kWh = 35W avg, contradicting BCD's own real-time
+    # power of 61.4W; BINARY's 25h delta was 3.4 kWh = 136W avg, matching
+    # BINARY's real-time power of 146W within ~7%. The BCD interpretation
+    # also produced spurious -0.05 corrections every ~65 min and -0.64
+    # carry-failures every ~17 h, both consistent with msmart-ng's
+    # decode_bcd() applied to a binary-encoded byte. BINARY units: W for
+    # real_time_power, deci-kWh for total_energy (the displayed value /10
+    # = kWh), so 16,206.6 displayed = 1,620.66 kWh lifetime.
+    from msmart.device import AirConditioner as AC
+    BIN = AC.EnergyDataFormat.BINARY
     power_w = None
     total_kwh = None
     try:
-        power_w = dev.get_real_time_power_usage()
-        total_kwh = dev.get_total_energy_usage()
+        power_w = dev.get_real_time_power_usage(format=BIN)
+        # BINARY total is in deci-kWh; divide by 10 for kWh.
+        total_raw = dev.get_total_energy_usage(format=BIN)
+        total_kwh = total_raw / 10 if total_raw is not None else None
     except Exception:
         pass
 

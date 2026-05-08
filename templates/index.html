@@ -391,6 +391,7 @@ var data = {{ chart_data | tojson }};
 var heaterRanges = {{ heater_ranges | tojson }};
 var coldRanges = {{ cold_ranges | tojson }};
 var fanRanges = {{ fan_ranges | tojson }};
+var doorRanges = {{ door_ranges | tojson }};
 var ambientData = {{ ambient_data | tojson }};
 var powerData = {{ power_data | tojson }};
 function buildRangeData(data, ranges) {
@@ -430,6 +431,29 @@ var coldBandPlugin = {
       var x0 = Math.max(area.left, xScale.getPixelForValue(r.xMin));
       var x1 = Math.min(area.right, xScale.getPixelForValue(r.xMax));
       if (x1 > x0) ctx.fillRect(x0, area.top, x1 - x0, area.bottom - area.top);
+    });
+    ctx.restore();
+  }
+};
+// Door-event marker plugin: thin vertical amber bar at each detected
+// hangar-door-open event. Events are typically 5-15 min wide (one bar
+// becomes a few pixels). Drawn on top of bands so it stays visible.
+var doorBandPlugin = {
+  id: 'doorBand',
+  afterDatasetsDraw: function(chart) {
+    if (!doorRanges.length) return;
+    var ctx = chart.ctx;
+    var area = chart.chartArea;
+    var xScale = chart.scales.x;
+    ctx.save();
+    ctx.fillStyle = 'rgba(245, 158, 11, 0.45)';
+    doorRanges.forEach(function(r) {
+      var x0 = Math.max(area.left, xScale.getPixelForValue(r.xMin));
+      var x1 = Math.min(area.right, xScale.getPixelForValue(r.xMax));
+      var w = Math.max(x1 - x0, 2);  // never thinner than 2 px
+      if (x1 > area.left && x0 < area.right) {
+        ctx.fillRect(x0, area.top, w, area.bottom - area.top);
+      }
     });
     ctx.restore();
   }
@@ -528,14 +552,23 @@ if (data.length > 0) {
               return { borderColor: c, backgroundColor: c };
             },
             afterBody: function(items) {
-              if (!items.length || !coldRanges.length) return [];
+              if (!items.length) return [];
               var x = items[0].parsed.x;
+              var lines = [];
               for (var i = 0; i < coldRanges.length; i++) {
                 if (x >= coldRanges[i].xMin && x <= coldRanges[i].xMax) {
-                  return ['≤ 48°F'];
+                  lines.push('≤ 48°F');
+                  break;
                 }
               }
-              return [];
+              for (var j = 0; j < doorRanges.length; j++) {
+                if (x >= doorRanges[j].xMin && x <= doorRanges[j].xMax) {
+                  var dir = doorRanges[j].direction === 'cooling' ? 'cold air in' : 'warm air in';
+                  lines.push('Door event (' + dir + ', ' + doorRanges[j].peak_f + '°F)');
+                  break;
+                }
+              }
+              return lines;
             }
           }
         },
@@ -564,7 +597,7 @@ if (data.length > 0) {
         }
       }
     },
-    plugins: [coldBandPlugin]
+    plugins: [coldBandPlugin, doorBandPlugin]
   });
   var resetBtn = document.getElementById('resetZoom');
   resetBtn.style.display = '';

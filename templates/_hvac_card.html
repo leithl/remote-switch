@@ -1,0 +1,70 @@
+{% if not hvac_configured %}
+  <p class="mb-1">Not configured.</p>
+  <p class="small text-muted mb-0">Pair the Midea WiFi dongle via NetHome Plus on your phone, then run <code>python3 setup_hvac.py</code> on the Pi.</p>
+{% elif not hvac_state or not hvac_state.reported %}
+  <p class="text-danger mb-0">HVAC dongle unreachable. Check power and network.</p>
+{% else %}
+  {% set r = hvac_state.reported %}
+  <h5 class="card-title">
+    Status: <b>{{ "ON" if r.power else "OFF" }}</b>
+    {% if r.power %} &middot; Mode: <b>{{ r.mode|capitalize }}</b>
+    {% if r.target_f is not none %} &middot; Target: <b>{{ "%.0f"|format(r.target_f) }}&deg;F / {{ "%.1f"|format(r.target_c) }}&deg;C</b>{% endif %}
+    {% endif %}
+  </h5>
+  {% if r.indoor_f is not none %}
+  <p class="mb-1 small">Indoor unit thermistor: <b>{{ "%.1f"|format(r.indoor_f) }}&deg;F / {{ "%.1f"|format(r.indoor_c) }}&deg;C</b></p>
+  {% endif %}
+  {% if hvac_state.diverged and hvac_state.commanded %}
+  {% set c = hvac_state.commanded %}
+  <p class="mb-1 small text-warning">
+    <strong>Last commanded:</strong>
+    {% if c.power %}{{ c.mode|capitalize }}{% if c.target_f is not none %} {{ "%.0f"|format(c.target_f) }}&deg;F{% endif %}, fan {{ c.fan_speed }}{% else %}OFF{% endif %}
+    &mdash; physical remote may have been used.
+  </p>
+  {% endif %}
+  {% if hvac_state.stale %}
+  <p class="mb-1 small text-warning">Stale: dongle last reachable {{ hvac_state.age_secs }}s ago.</p>
+  {% endif %}
+
+  <form action="switch.py" method="GET" class="row g-2 align-items-end mt-2">
+    <input type="hidden" name="hvac_apply" value="1">
+    <div class="col-auto">
+      <label class="form-label mb-0 small">Power</label>
+      <select name="hvac_power" class="form-select form-select-sm">
+        <option value="1"{% if r.power %} selected{% endif %}>On</option>
+        <option value="0"{% if not r.power %} selected{% endif %}>Off</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <label class="form-label mb-0 small">Mode</label>
+      <select name="hvac_mode" class="form-select form-select-sm">
+        {% for val, label in hvac_modes %}{% if val != hvac_mode_freeze %}
+        <option value="{{ val }}"{% if r.mode == val %} selected{% endif %}>{{ label }}</option>
+        {% endif %}{% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <label class="form-label mb-0 small">Target &deg;F</label>
+      <input type="number" name="hvac_target_f" class="form-control form-control-sm"
+             min="{{ hvac_temp_min_f }}" max="{{ hvac_temp_max_f }}" step="1"
+             value="{{ "%.0f"|format(r.target_f) if r.target_f is not none else 70 }}" style="width:5em">
+    </div>
+    <div class="col-auto">
+      <label class="form-label mb-0 small">Fan</label>
+      <select name="hvac_fan_speed" class="form-select form-select-sm">
+        {% for val, label in hvac_fans %}
+        <option value="{{ val }}"{% if r.fan_speed == val %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+    </div>
+  </form>
+
+  <form action="switch.py" method="GET" class="d-inline">
+    <input type="hidden" name="hvac_apply" value="1">
+    <input type="hidden" name="hvac_mode" value="{{ hvac_mode_freeze }}">
+    <button type="submit" class="btn btn-outline-info btn-sm mt-2">Freeze Prevention preset</button>
+  </form>
+{% endif %}

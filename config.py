@@ -373,6 +373,29 @@ def query_readings(conn, since_epoch, until_epoch):
         ).fetchall()
 
 
+def query_temp_pairs(conn, since_epoch, until_epoch):
+    """
+    Return per-minute (epoch, temp_c, ac_indoor_f) rows from both DBs.
+
+    Used for door-event detection — that needs raw 1-minute granularity,
+    not bucketed averages, to catch the 5-15 min divergence between the
+    floor-level Pi DS18B20 and the ceiling-level unit thermistor when a
+    hangar door opens.
+    """
+    cols = "epoch, temp_c, ac_indoor_f"
+    if _has_ram(conn):
+        sql = (
+            f"SELECT {cols} FROM readings WHERE epoch >= ? AND epoch < ?"
+            f" UNION SELECT {cols} FROM ram.readings WHERE epoch >= ? AND epoch < ?"
+            " ORDER BY epoch"
+        )
+        return conn.execute(sql, (since_epoch, until_epoch, since_epoch, until_epoch)).fetchall()
+    return conn.execute(
+        f"SELECT {cols} FROM readings WHERE epoch >= ? AND epoch < ? ORDER BY epoch",
+        (since_epoch, until_epoch)
+    ).fetchall()
+
+
 def query_bucketed(conn, since_epoch, until_epoch, bucket_secs=900):
     """
     Return pre-aggregated 15-min bucket rows for chart rendering.

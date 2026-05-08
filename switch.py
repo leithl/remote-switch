@@ -500,6 +500,7 @@ def _handle(environ):
     heater_ranges = []
     cold_ranges = []
     fan_ranges = []
+    door_ranges = []
     ambient_data = []
     power_data = []
     months_data = []
@@ -534,6 +535,16 @@ def _handle(environ):
             fan_ranges = live_result.get("fan_ranges", [])
             ambient_data = live_result["ambient_data"]
             power_data = live_result.get("power_data", [])
+
+            # Door-event detection runs only on the 1d / 7d ranges. It
+            # needs raw per-minute (temp_c, ac_indoor_f) pairs — bucketed
+            # averages would smooth out the 5-15min divergence signal —
+            # so the row count is unbounded by bucket_secs. 7d × 1440 =
+            # ~10k rows is fine on the Pi Zero W; 30d at 43k pushes it
+            # and the events would render as overlapping pixels anyway.
+            if range_param in ("1d", "7d"):
+                pairs = config.query_temp_pairs(conn, chart_cutoff, chart_end_epoch)
+                door_ranges = aggregate.detect_door_events(pairs)
 
         # Build per-month stats (13 months) with batch queries
         month_meta = []
@@ -615,6 +626,7 @@ def _handle(environ):
         heater_ranges=heater_ranges,
         cold_ranges=cold_ranges,
         fan_ranges=fan_ranges,
+        door_ranges=door_ranges,
         ambient_data=ambient_data,
         power_data=power_data,
         months_data=months_data,

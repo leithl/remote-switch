@@ -15,6 +15,18 @@ from statistics import mean
 # kicking in pushes well past 200W.
 POWER_ON_THRESHOLD_W = 200
 
+# Door-detection thresholds. The Pi DS18B20 sits at ~4 ft (floor) and
+# ac_indoor_f reads from the unit's ceiling thermistor at ~12 ft. A door
+# opening lets denser air infiltrate one stratum while the other stays put:
+# cold air sinks to the floor in winter (Pi drops, unit flat); hot air rises
+# to the ceiling in summer (unit climbs, Pi flat). Detection signal is
+# |Δfloor| - |Δceiling| over a 5-min window — natural mixing and HVAC heat
+# (where ceiling leads floor) yield a small or negative signal.
+DOOR_THRESHOLD_F   = 1.0   # Min (|Δfloor|-|Δceiling|) to flag, °F
+DOOR_WINDOW_MIN    = 5     # Sliding window for rate-of-change
+DOOR_MERGE_GAP_MIN = 10    # Adjacent flagged minutes within this gap merge to one event
+DOOR_MAX_EVENT_MIN = 30    # Cap event length — anything longer is likely sustained draft, not a door cycle
+
 
 def compute(rows, cutoff, chart_end):
     """
@@ -340,4 +352,85 @@ def compute_bucketed(rows, cutoff, chart_end, bucket_secs=900):
         "heater_ranges": heater_ranges,
         "cold_ranges": cold_ranges,
         "fan_ranges": fan_ranges,
+    }
+
+
+def detect_door_events(rows,
+                       threshold_f=DOOR_THRESHOLD_F,
+                       window_min=DOOR_WINDOW_MIN,
+                       merge_gap_min=DOOR_MERGE_GAP_MIN,
+                       max_event_min=DOOR_MAX_EVENT_MIN):
+    """
+    Detect hangar-door-open events from rapid floor temp changes that
+    aren't matched by the ceiling-mounted unit thermistor.
+
+    Args:
+        rows: Iterable of (epoch, temp_c, ac_indoor_f) per-minute, sorted by epoch.
+              temp_c is °C; ac_indoor_f is °F. Either may be None.
+        threshold_f / window_min / merge_gap_min / max_event_min: see module constants.
+
+    Returns:
+        list of {xMin: epoch_ms, xMax: epoch_ms, peak_f: float, direction: str}
+        sorted by xMin. direction is "infiltration" if outdoor air came in
+        (floor cooled OR floor warmed both qualify); the sign hints at season.
+    """
+    paired = [(e, t, ai) for (e, t, ai) in rows if t is not None and ai is not None]
+    if len(paired) < window_min + 1:
+        return []
+
+    by_epoch = {e: (t, ai) for (e, t, ai) in paired}
+    epochs = sorted(by_epoch.keys())
+
+    flagged = []  # (epoch, signal_f, signed_floor_delta_f)
+    for i in range(window_min, len(epochs)):
+        e_now = epochs[i]
+        e_then = epochs[i - window_min]
+        # Skip windows that span data gaps — the row 5 indices back may be
+        # 30 minutes ago, not 5.
+        if e_now - e_then > window_min * 60 + 30:
+            continue
+        t_now, ai_now = by_epoch[e_now]
+        t_then, ai_then = by_epoch[e_then]
+        floor_delta_f = (t_now - t_then) * 9.0 / 5.0
+        ceil_delta_f  = ai_now - ai_then
+        signal = abs(floor_delta_f) - abs(ceil_delta_f)
+        if signal >= threshold_f:
+            flagged.append((e_now, signal, floor_delta_f))
+
+    if not flagged:
+        return []
+
+    events = []
+    cur_start = flagged[0][0]
+    cur_end = flagged[0][0]
+    cur_peak = flagged[0][1]
+    cur_dir = flagged[0][2]
+    for e, s, d in flagged[1:]:
+        if e - cur_end <= merge_gap_min * 60:
+            cur_end = e
+            if s > cur_peak:
+                cur_peak = s
+                cur_dir = d
+        else:
+            events.append(_door_event(cur_start, cur_end, cur_peak, cur_dir, window_min))
+            cur_start = e
+            cur_end = e
+            cur_peak = s
+            cur_dir = d
+    events.append(_door_event(cur_start, cur_end, cur_peak, cur_dir, window_min))
+
+    # Drop sustained events — likely a long-open door (which we can't usefully
+    # call out as a single point) or a non-door drift the heuristic misclassified.
+    return [e for e in events
+            if (e["xMax"] - e["xMin"]) <= max_event_min * 60 * 1000]
+
+
+def _door_event(start_epoch, end_epoch, peak_f, signed_floor_delta_f, window_min):
+    # Pull start back by the window — the signal is computed at the END of
+    # each window, so the actual event onset preceded the first flag.
+    return {
+        "xMin": (start_epoch - window_min * 60) * 1000,
+        "xMax": (end_epoch + 60) * 1000,
+        "peak_f": round(peak_f, 1),
+        "direction": "cooling" if signed_floor_delta_f < 0 else "warming",
     }

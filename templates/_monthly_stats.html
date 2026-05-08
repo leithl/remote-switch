@@ -1,0 +1,87 @@
+{% if months_data %}
+<div class="stats-wrap" id="statsWrap">
+<div class="table-responsive">
+<table class="table table-sm table-striped table-hover mb-0 stats-table">
+<thead>
+<tr>
+  <th class="stats-metric-col">Metric</th>
+  {% for m in months_data %}
+  <th class="text-end stats-month-col" onclick="location='switch.py?range={{ m.mk }}'" style="cursor:pointer">
+    {{ m.label }}{% if m.coverage_pct < 100 %}<br><span class="small text-muted fw-normal">{{ "%.1f"|format(m.coverage_pct) }}%</span>{% endif %}
+  </th>
+  {% endfor %}
+</tr>
+</thead>
+<tbody>
+<tr class="stats-group"><td colspan="{{ months_data|length + 1 }}" class="fw-semibold small text-uppercase text-muted">Hangar</td></tr>
+<tr>
+  <td class="stats-metric-col ps-3">Avg</td>
+  {% for m in months_data %}
+  <td class="text-end"><span class="unit-f">{{ "%.1f"|format(m.hangar.avg_f) }}&deg;F</span><span class="unit-c">{{ "%.1f"|format(m.hangar.avg_c) }}&deg;C</span></td>
+  {% endfor %}
+</tr>
+<tr>
+  <td class="stats-metric-col ps-3">Min</td>
+  {% for m in months_data %}
+  <td class="text-end"><span class="unit-f">{{ "%.1f"|format(m.hangar.min_f) }}&deg;F</span><span class="unit-c">{{ "%.1f"|format(m.hangar.min_c) }}&deg;C</span></td>
+  {% endfor %}
+</tr>
+<tr>
+  <td class="stats-metric-col ps-3">Max</td>
+  {% for m in months_data %}
+  <td class="text-end"><span class="unit-f">{{ "%.1f"|format(m.hangar.max_f) }}&deg;F</span><span class="unit-c">{{ "%.1f"|format(m.hangar.max_c) }}&deg;C</span></td>
+  {% endfor %}
+</tr>
+<tr>
+  <td class="stats-metric-col ps-3"><span class="unit-f">Hrs &le; 48&deg;F</span><span class="unit-c">Hrs &le; 8.9&deg;C</span></td>
+  {% for m in months_data %}
+  <td class="text-end">{{ "%.1f"|format(m.hangar.cold_hrs) }}</td>
+  {% endfor %}
+</tr>
+{% if months_data|selectattr('outdoor')|list %}
+<tr class="stats-group"><td colspan="{{ months_data|length + 1 }}" class="fw-semibold small text-uppercase text-muted">Outdoor</td></tr>
+<tr>
+  <td class="stats-metric-col ps-3">Avg</td>
+  {% for m in months_data %}
+  <td class="text-end">{% if m.outdoor %}<span class="unit-f">{{ "%.1f"|format(m.outdoor.avg_f) }}&deg;F</span><span class="unit-c">{{ "%.1f"|format(m.outdoor.avg_c) }}&deg;C</span>{% else %}<span class="text-muted">&mdash;</span>{% endif %}</td>
+  {% endfor %}
+</tr>
+<tr>
+  <td class="stats-metric-col ps-3">Min</td>
+  {% for m in months_data %}
+  <td class="text-end">{% if m.outdoor %}<span class="unit-f">{{ "%.1f"|format(m.outdoor.min_f) }}&deg;F</span><span class="unit-c">{{ "%.1f"|format(m.outdoor.min_c) }}&deg;C</span>{% else %}<span class="text-muted">&mdash;</span>{% endif %}</td>
+  {% endfor %}
+</tr>
+<tr>
+  <td class="stats-metric-col ps-3">Max</td>
+  {% for m in months_data %}
+  <td class="text-end">{% if m.outdoor %}<span class="unit-f">{{ "%.1f"|format(m.outdoor.max_f) }}&deg;F</span><span class="unit-c">{{ "%.1f"|format(m.outdoor.max_c) }}&deg;C</span>{% else %}<span class="text-muted">&mdash;</span>{% endif %}</td>
+  {% endfor %}
+</tr>
+<tr>
+  <td class="stats-metric-col ps-3"><span class="unit-f">Hrs &le; 48&deg;F</span><span class="unit-c">Hrs &le; 8.9&deg;C</span></td>
+  {% for m in months_data %}
+  <td class="text-end">{% if m.outdoor %}{{ "%.1f"|format(m.outdoor.cold_hrs) }}{% else %}<span class="text-muted">&mdash;</span>{% endif %}</td>
+  {% endfor %}
+</tr>
+{% endif %}
+<tr class="stats-group"><td colspan="{{ months_data|length + 1 }}" class="fw-semibold small text-uppercase text-muted">Runtime</td></tr>
+<tr>
+  <td class="stats-metric-col ps-3">Heater</td>
+  {% for m in months_data %}
+  <td class="text-end">{{ m.heater_str if m.heater_str else '—' }}</td>
+  {% endfor %}
+</tr>
+<tr>
+  <td class="stats-metric-col ps-3">Fan</td>
+  {% for m in months_data %}
+  <td class="text-end">{{ m.fan_str if m.fan_str else '—' }}</td>
+  {% endfor %}
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+{% else %}
+<p class="text-muted m-3 mb-0">No monthly data yet.</p>
+{% endif %}

@@ -135,7 +135,7 @@ The wrappers were verified against msmart-ng 2025.12.0. If you upgrade, watch th
 - Heater band (engine-block) — `rgba(220, 53, 69, 0.25)` red
 - Fan band — `rgba(13, 110, 253, 0.20)` blue
 - Cold annotation (≤48°F) — `rgba(255, 152, 0, 0.15)` orange box
-- Door-open marker — `rgba(245, 158, 11, 0.45)` amber bar; computed by `aggregate.detect_door_events()` from raw per-minute rows (1d/7d only — 30d/monthly skipped because events would render as overlapping pixels). Tooltip shows `Door event (cold air in / warm air in, N°F peak)`.
+- Door-open marker — `rgba(219, 39, 119, 0.55)` fuchsia bar (distinct from the orange cold annotation); computed by `aggregate.detect_door_events()` from raw per-minute rows (1d/7d only — 30d/monthly skipped because events would render as overlapping pixels). Tooltip shows `Door event (cold air in / warm air in, N°F peak)`.
 - Hangar temp line — `rgb(75, 192, 192)` teal (left y-axis, °F)
 - Ambient line — `rgb(34, 197, 94)` green (left y-axis, °F)
 - HVAC power line — `rgb(168, 85, 247)` purple (**right y-axis, Watts**)

@@ -119,6 +119,64 @@ def _month_data(mk, label, ts, as_, rs, t_pct):
 # Old-cache row helpers (from migrate.py, pre-rendered HTML from .dat files)
 # ---------------------------------------------------------------------------
 
+def _compute_months_data(conn, now_epoch=None):
+    """Build the 13-month stats list. Slow on Pi Zero W (~6s SQL scan), so the
+    main page render skips this — clients fetch it via ?monthly_stats=1 after
+    page load. Reused from both the lazy endpoint and the full-page render."""
+    if now_epoch is None:
+        now_epoch = int(datetime.now().timestamp())
+    cur_month_date = date.today().replace(day=1)
+    months_data = []
+
+    month_meta = []
+    for i in range(13):
+        md = config.subtract_months(cur_month_date, i)
+        mk = md.strftime("%Y-%m")
+        lbl = _month_label(md)
+        m_start, m_end = _month_bounds(md)
+        is_current = md == cur_month_date
+        effective_end = min(m_end, now_epoch) if is_current else m_end
+        month_meta.append((mk, lbl, m_start, m_end, effective_end, is_current))
+
+    all_mks = [m[0] for m in month_meta]
+    placeholders = ",".join("?" * len(all_mks))
+    cache_map = {
+        row[0]: json.loads(row[1])
+        for row in conn.execute(
+            f"SELECT month, data FROM monthly_cache WHERE month IN ({placeholders})",
+            all_mks,
+        ).fetchall()
+    }
+
+    live_month_meta = [m for m in month_meta if m[5] or m[0] not in cache_map]
+    live_batch_stats = {}
+    if live_month_meta:
+        batch_start = min(m[2] for m in live_month_meta)
+        batch_end = max(m[4] for m in live_month_meta)
+        live_batch_stats = config.query_batch_stats(conn, batch_start, batch_end)
+
+    for mk, lbl, m_start, m_end, effective_end, is_current in month_meta:
+        cached = cache_map.get(mk) if not is_current else None
+        if cached:
+            if "_html_temp" in cached:
+                continue
+            ts = cached.get("temp_stats")
+            as_ = cached.get("ambient_stats")
+            rs = cached.get("runtime_stats")
+            if ts and rs:
+                t_pct = rs.get("temp_coverage_pct", 0)
+                months_data.append(_month_data(mk, lbl, ts, as_, rs, t_pct))
+        else:
+            sql_row = live_batch_stats.get(mk)
+            if not sql_row:
+                continue
+            ts, as_, rs = _build_stats(sql_row, m_start, effective_end)
+            if ts and rs:
+                t_pct = rs.get("temp_coverage_pct", 0)
+                months_data.append(_month_data(mk, lbl, ts, as_, rs, t_pct))
+    return months_data
+
+
 def _old_cache_temp_row(mk, html_row):
     """Add onclick to a pre-rendered HTML temp row from old .dat cache."""
     row = html_row.replace(
@@ -253,6 +311,40 @@ def _handle(environ):
         if not wx_id and not (wx_lat and wx_lon):
             result = ""
         _respond("text/plain", result)
+
+    # --- Lazy-loaded HVAC card body (~3.8s for dongle round-trip) ---
+    # The main page render skips hvac.get_state() and shows a spinner;
+    # client-side JS fetches this and swaps it into #hvac-card-body.
+    if qs.get("hvac_state") == "1":
+        hvac_configured = hvac.is_configured()
+        hvac_state = hvac.get_state() if hvac_configured else None
+        tmpl = _get_jinja_env().get_template("_hvac_card.html")
+        body_html = tmpl.render(
+            hvac_configured=hvac_configured,
+            hvac_state=hvac_state,
+            hvac_modes=[(m, hvac.MODE_LABELS[m]) for m in hvac.ALL_MODES],
+            hvac_fans=[(f, hvac.FAN_LABELS[f]) for f in hvac.ALL_FANS],
+            hvac_temp_min_f=hvac.TEMP_MIN_F,
+            hvac_temp_max_f=hvac.TEMP_MAX_F,
+            hvac_mode_freeze=hvac.MODE_FREEZE,
+        )
+        power_on = bool(
+            hvac_state and hvac_state.get("reported")
+            and hvac_state["reported"].get("power")
+        )
+        _respond("application/json", json.dumps({"power_on": power_on, "html": body_html}))
+
+    # --- Lazy-loaded monthly stats table (~6.7s SQL scan on Pi Zero W) ---
+    # Same pattern: main page skips it, client JS fetches and swaps into
+    # #monthly-stats-body. Drops main TTFB by ~6s.
+    if qs.get("monthly_stats") == "1":
+        conn = config.get_db()
+        try:
+            months_data = _compute_months_data(conn)
+        finally:
+            conn.close()
+        tmpl = _get_jinja_env().get_template("_monthly_stats.html")
+        _respond("text/html", tmpl.render(months_data=months_data))
 
     # --- GPIO check ---
     gpio_path = config._gpio_path()
@@ -429,9 +521,11 @@ def _handle(environ):
             amb_f = amb_c * 1.8 + 32
             ambient_display = f"{amb_c:.1f} \u00b0C | {amb_f:.1f} \u00b0F"
 
-    # --- HVAC state ---
+    # --- HVAC state — lazy-loaded by client JS via ?hvac_state=1 ---
+    # The dongle round-trip can take 3-4s on cache miss; deferring it drops
+    # main TTFB. is_configured() is a cheap .env check, kept here so the
+    # template can render the spinner skeleton (vs "Not configured" text).
     hvac_configured = hvac.is_configured()
-    hvac_state = hvac.get_state() if hvac_configured else None
 
     # --- Pending schedules ---
     conn = config.get_db()
@@ -546,58 +640,9 @@ def _handle(environ):
                 pairs = config.query_temp_pairs(conn, chart_cutoff, chart_end_epoch)
                 door_ranges = aggregate.detect_door_events(pairs)
 
-        # Build per-month stats (13 months) with batch queries
-        month_meta = []
-        for i in range(13):
-            md = config.subtract_months(cur_month_date, i)
-            mk = md.strftime("%Y-%m")
-            lbl = _month_label(md)
-            m_start, m_end = _month_bounds(md)
-            is_current = md == cur_month_date
-            effective_end = min(m_end, now_epoch) if is_current else m_end
-            month_meta.append((mk, lbl, m_start, m_end, effective_end, is_current))
-
-        # Fetch all cache rows in one query
-        all_mks = [m[0] for m in month_meta]
-        placeholders = ",".join("?" * len(all_mks))
-        cache_map = {
-            row[0]: json.loads(row[1])
-            for row in conn.execute(
-                f"SELECT month, data FROM monthly_cache WHERE month IN ({placeholders})",
-                all_mks,
-            ).fetchall()
-        }
-
-        # Single SQL query for all uncached months' stats (replaces N Python aggregate.compute calls)
-        live_month_meta = [
-            m for m in month_meta if m[5] or m[0] not in cache_map  # is_current or uncached
-        ]
-        live_batch_stats = {}
-        if live_month_meta:
-            batch_start = min(m[2] for m in live_month_meta)
-            batch_end = max(m[4] for m in live_month_meta)
-            live_batch_stats = config.query_batch_stats(conn, batch_start, batch_end)
-
-        for mk, lbl, m_start, m_end, effective_end, is_current in month_meta:
-            cached = cache_map.get(mk) if not is_current else None
-
-            if cached:
-                if "_html_temp" in cached:
-                    continue  # old pre-migration format — incompatible with merged table
-                ts = cached.get("temp_stats")
-                as_ = cached.get("ambient_stats")
-                rs = cached.get("runtime_stats")
-                if ts and rs:
-                    t_pct = rs.get("temp_coverage_pct", 0)
-                    months_data.append(_month_data(mk, lbl, ts, as_, rs, t_pct))
-            else:
-                sql_row = live_batch_stats.get(mk)
-                if not sql_row:
-                    continue
-                ts, as_, rs = _build_stats(sql_row, m_start, effective_end)
-                if ts and rs:
-                    t_pct = rs.get("temp_coverage_pct", 0)
-                    months_data.append(_month_data(mk, lbl, ts, as_, rs, t_pct))
+        # Monthly stats are lazy-loaded by client JS via ?monthly_stats=1.
+        # Computing them inline adds ~6.7s on a Pi Zero W (full SQL scan over
+        # current month's readings + cache lookups). Skipping here drops TTFB.
 
         conn.close()
 
@@ -629,14 +674,14 @@ def _handle(environ):
         door_ranges=door_ranges,
         ambient_data=ambient_data,
         power_data=power_data,
-        months_data=months_data,
         sched_msg=sched_msg,
         pending_sched_rows=pending_sched_rows,
         now_dt_min=now_dt_min,
         now_str=now_str,
-        # HVAC
+        # HVAC — the card body (with live state + apply form) is loaded via
+        # JS through ?hvac_state=1; only the static enums needed by the
+        # schedule form's dropdowns and the spinner header are passed here.
         hvac_configured=hvac_configured,
-        hvac_state=hvac_state,
         hvac_modes=[(m, hvac.MODE_LABELS[m]) for m in hvac.ALL_MODES],
         hvac_fans=[(f, hvac.FAN_LABELS[f]) for f in hvac.ALL_FANS],
         hvac_temp_min_f=hvac.TEMP_MIN_F,

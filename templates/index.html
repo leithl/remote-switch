@@ -137,8 +137,18 @@
 <div class="card-body">
   <p class="mb-1"><strong>Hangar:</strong> {{ temp_display }}</p>
   {% if ambient_display %}<p class="mb-1"><strong>Outdoor:</strong> {{ ambient_display }}</p>{% endif %}
-  <div class="mb-2 wx-decoded" id="metar" style="display:none;cursor:pointer;white-space:pre-wrap" onclick="toggleWxDecode(this)"></div>
-  <div class="mb-3 wx-decoded" id="taf" style="display:none;cursor:pointer;white-space:pre-wrap" onclick="toggleWxDecode(this)"></div>
+  <div class="mb-2 wx-collapsible" id="metar" style="display:none">
+    <div class="wx-summary" role="button" tabindex="0" aria-expanded="false"
+         onclick="toggleWxExpand(this.parentNode)"
+         onkeydown="wxKey(event, this.parentNode)"></div>
+    <div class="wx-body wx-decoded" onclick="toggleWxDecode(this)" style="display:none;cursor:pointer;white-space:pre-wrap"></div>
+  </div>
+  <div class="mb-3 wx-collapsible" id="taf" style="display:none">
+    <div class="wx-summary" role="button" tabindex="0" aria-expanded="false"
+         onclick="toggleWxExpand(this.parentNode)"
+         onkeydown="wxKey(event, this.parentNode)"></div>
+    <div class="wx-body wx-decoded" onclick="toggleWxDecode(this)" style="display:none;cursor:pointer;white-space:pre-wrap"></div>
+  </div>
   <div class="mb-2">
     <a href="switch.py?range=1d" class="btn btn-sm {{ 'btn-primary' if range == '1d' else 'btn-outline-primary' }}">1 Day</a>
     <a href="switch.py?range=7d" class="btn btn-sm {{ 'btn-primary' if range == '7d' else 'btn-outline-primary' }}">7 Days</a>
@@ -617,6 +627,11 @@ if (data.length > 0) {
 .wx-label { font-size: .72em; color: #6c757d; text-transform: uppercase; letter-spacing: .04em; padding-top: 2px; }
 .wx-val { font-size: .9em; color: #212529; }
 .wx-decoded[data-decoded] { white-space: normal; }
+.wx-summary { cursor: pointer; user-select: none; font-size: .9em; color: #495057; padding: 2px 0; }
+.wx-summary::before { content: '\25B8'; display: inline-block; width: 1em; margin-right: .15em; color: #6c757d; transition: transform .15s ease; }
+.wx-summary[aria-expanded="true"]::before { transform: rotate(90deg); }
+.wx-summary:focus { outline: 2px solid rgba(13, 110, 253, 0.35); outline-offset: 2px; }
+.wx-body { margin-top: 4px; }
 </style>
 <script>
 var wxPhenomena = {
@@ -750,25 +765,52 @@ function toggleWxDecode(el) {
     delete el.dataset.decoded;
   } else {
     if (!el.dataset.raw) return;
-    var isTaf = el.id === 'taf';
+    var isTaf = el.dataset.kind === 'taf';
     el.innerHTML = isTaf ? decodeTaf(el.dataset.raw) : decodeMetar(el.dataset.raw);
     el.dataset.decoded = '1';
   }
 }
-function showDecoded(el, raw, isTaf) {
-  el.dataset.raw = raw;
-  el.innerHTML = isTaf ? decodeTaf(raw) : decodeMetar(raw);
-  el.dataset.decoded = '1';
-  el.style.display = '';
+function summarizeWx(raw, isTaf) {
+  var firstLine = raw.split('\n')[0].trim();
+  var block = parseWxBlock(firstLine.split(/\s+/), isTaf, true);
+  var station = '', time = '';
+  block.fields.forEach(function(f) {
+    if (f.label === 'Station') station = f.value;
+    else if (f.label === 'Time') time = f.value;
+  });
+  var parts = [isTaf ? 'TAF' : 'METAR'];
+  if (station) parts.push(station);
+  if (time) parts.push(time);
+  return parts.join(' · ');
+}
+function toggleWxExpand(outer) {
+  var summary = outer.querySelector('.wx-summary');
+  var body = outer.querySelector('.wx-body');
+  var open = summary.getAttribute('aria-expanded') === 'true';
+  summary.setAttribute('aria-expanded', open ? 'false' : 'true');
+  body.style.display = open ? 'none' : '';
+}
+function wxKey(e, outer) {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleWxExpand(outer); }
+}
+function showWx(outer, raw, isTaf) {
+  var summary = outer.querySelector('.wx-summary');
+  var body = outer.querySelector('.wx-body');
+  body.dataset.raw = raw;
+  body.dataset.kind = isTaf ? 'taf' : 'metar';
+  body.innerHTML = isTaf ? decodeTaf(raw) : decodeMetar(raw);
+  body.dataset.decoded = '1';
+  summary.textContent = summarizeWx(raw, isTaf);
+  outer.style.display = '';
 }
 fetch('switch.py?metar=1').then(function(r){return r.text()}).then(function(t){
   t=t.trim(); if(!t) return;
-  showDecoded(document.getElementById('metar'), t, false);
+  showWx(document.getElementById('metar'), t, false);
 }).catch(function(){});
 fetch('switch.py?taf=1').then(function(r){return r.text()}).then(function(t){
   t=t.trim(); if(!t) return;
   t=t.replace(/ (FM|BECMG|TEMPO|PROB\d{2})/g, '\n  $1');
-  showDecoded(document.getElementById('taf'), t, true);
+  showWx(document.getElementById('taf'), t, true);
 }).catch(function(){});
 </script>
 </body>

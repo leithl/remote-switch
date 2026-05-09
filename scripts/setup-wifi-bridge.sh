@@ -69,9 +69,10 @@ WantedBy=multi-user.target
 EOF
 
 echo "Writing /etc/hostapd/hostapd.conf..."
-# logger_*_level=4 (warning+) suppresses per-association info noise. The Midea
-# dongle keepalive cycles uap0 every ~30s; at default level 2 (info) that's
-# thousands of lines/day filling log2ram's 128M tmpfs.
+# logger_*_level=4 (warning+) suppresses per-association info noise.
+# Defensive against any cause of dongle assoc/disassoc cycling — without
+# it, a flap (e.g. the UFW DHCP-block bug fixed below) produces thousands
+# of hostapd lines/day and fills log2ram's 128M tmpfs.
 cat > /etc/hostapd/hostapd.conf <<EOF
 interface=uap0
 driver=nl80211
@@ -128,6 +129,18 @@ iptables -C FORWARD -i wlan0 -o uap0 -m state --state RELATED,ESTABLISHED -j ACC
 iptables -C FORWARD -i uap0 -o wlan0 -j ACCEPT 2>/dev/null \
   || iptables -A FORWARD -i uap0 -o wlan0 -j ACCEPT
 netfilter-persistent save >/dev/null
+
+# UFW's default after.rules silently DROPs inbound UDP/67 to suppress nuisance
+# broadcast spam — and that drop fires before user-defined rules unless they're
+# loaded into ufw-user-input. Without this, the dongle's DHCPDISCOVERs never
+# reach dnsmasq, the dongle never gets an IP, and it cycles assoc/disassoc
+# every ~31s (the 1+2+4+8+16s DHCPDISCOVER backoff). See CLAUDE.md "WiFi bridge"
+# section for the diagnostic recipe; this took a day to find the first time.
+if systemctl is-active --quiet ufw; then
+  echo "Allowing uap0 traffic through UFW (else DHCP server is silently dropped)..."
+  ufw allow in on uap0 >/dev/null
+  ufw reload >/dev/null
+fi
 
 echo "Enabling services..."
 systemctl daemon-reload

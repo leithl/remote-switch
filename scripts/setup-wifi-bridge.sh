@@ -69,6 +69,9 @@ WantedBy=multi-user.target
 EOF
 
 echo "Writing /etc/hostapd/hostapd.conf..."
+# logger_*_level=4 (warning+) suppresses per-association info noise. The Midea
+# dongle keepalive cycles uap0 every ~30s; at default level 2 (info) that's
+# thousands of lines/day filling log2ram's 128M tmpfs.
 cat > /etc/hostapd/hostapd.conf <<EOF
 interface=uap0
 driver=nl80211
@@ -82,6 +85,10 @@ wpa=2
 wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
 wpa_passphrase=${AP_PASS}
+logger_syslog=-1
+logger_syslog_level=4
+logger_stdout=-1
+logger_stdout_level=4
 EOF
 sed -i 's|^#\?DAEMON_CONF=.*|DAEMON_CONF="/etc/hostapd/hostapd.conf"|' /etc/default/hostapd
 

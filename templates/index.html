@@ -19,38 +19,26 @@
 <body>
 <div class="container mt-3">
 
-<div class="card mb-3">
+<div class="row g-3 mb-3 align-items-start">
+
+<div class="col-md-4">
+<div class="card">
 <div class="card-header {{ header_class }}">
-  <h4>Airplane Hanger Heater Control</h4>
+  <h5 class="mb-0">Airplane Hanger Heater Control</h5>
 </div>
 <div class="card-body">
 <h5 class="card-title">Heater Status: <b>{{ status }}</b></h5>
 <form action="switch.py" method="GET">
-<p>{{ toggle_btn }}</p>
+<p class="mb-0">{{ toggle_btn }}</p>
 </form>
 </div>
-<div class="card-footer text-body-secondary">
-  {{ now_str }}
 </div>
 </div>
 
-<div class="card mb-3" id="hvac-card">
-<div class="card-header text-bg-secondary" id="hvac-card-header">
-  <h4>Hangar HVAC</h4>
-</div>
-<div class="card-body" id="hvac-card-body">
-  <div class="d-flex justify-content-center align-items-center py-3">
-    <div class="spinner-border spinner-border-sm text-secondary me-2" role="status">
-      <span class="visually-hidden">Loading...</span>
-    </div>
-    <span class="text-muted small">Reading dongle&hellip;</span>
-  </div>
-</div>
-</div>
-
-<div class="card mb-3">
+<div class="col-md-4">
+<div class="card">
 <div class="card-header {{ fan_header_class }}">
-  <h4>Exhaust Fan</h4>
+  <h5 class="mb-0">Exhaust Fan</h5>
 </div>
 <div class="card-body">
 <h5 class="card-title">Fan Status: <b>{{ fan_status }}</b> &nbsp;&middot;&nbsp; Mode: <b>{{ fan_mode }}</b></h5>
@@ -66,109 +54,32 @@
 {% endif %}
 </div>
 </div>
-
-{% if enable_temp %}
-<div class="card mb-3">
-<div class="card-header"><h5 class="mb-0">{{ chart_title }}</h5></div>
-<div class="card-body">
-  <p class="mb-1"><strong>Hangar:</strong> {{ temp_display }}</p>
-  {% if ambient_display %}<p class="mb-1"><strong>Outdoor:</strong> {{ ambient_display }}</p>{% endif %}
-  <div class="mb-2 wx-collapsible" id="metar" style="display:none">
-    <div class="wx-summary" role="button" tabindex="0" aria-expanded="false"
-         onclick="toggleWxExpand(this.parentNode)"
-         onkeydown="wxKey(event, this.parentNode)"></div>
-    <div class="wx-body wx-decoded" onclick="toggleWxDecode(this)" style="display:none;cursor:pointer;white-space:pre-wrap"></div>
-  </div>
-  <div class="mb-3 wx-collapsible" id="taf" style="display:none">
-    <div class="wx-summary" role="button" tabindex="0" aria-expanded="false"
-         onclick="toggleWxExpand(this.parentNode)"
-         onkeydown="wxKey(event, this.parentNode)"></div>
-    <div class="wx-body wx-decoded" onclick="toggleWxDecode(this)" style="display:none;cursor:pointer;white-space:pre-wrap"></div>
-  </div>
-  <div class="mb-2">
-    <a href="switch.py?range=1d" class="btn btn-sm {{ 'btn-primary' if range == '1d' else 'btn-outline-primary' }}">1 Day</a>
-    <a href="switch.py?range=7d" class="btn btn-sm {{ 'btn-primary' if range == '7d' else 'btn-outline-primary' }}">7 Days</a>
-    <a href="switch.py?range=30d" class="btn btn-sm {{ 'btn-primary' if range == '30d' else 'btn-outline-primary' }}">30 Days</a>
-    <span class="ms-3 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(220,53,69,0.3);vertical-align:middle"></span> Heater on</span>
-    <span class="ms-2 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(13,110,253,0.3);vertical-align:middle"></span> Fan on</span>
-    <span class="ms-2 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(255,152,0,0.3);vertical-align:middle"></span> &le; 48&deg;F</span>
-    <span class="ms-2 small text-muted"><span style="display:inline-block;width:6px;height:12px;background:rgba(219,39,119,0.6);vertical-align:middle"></span> Door open</span>
-    <span class="ms-2 small text-muted"><span style="display:inline-block;width:20px;border-top:2px solid rgb(75,192,192);vertical-align:middle"></span> Hangar</span>
-    <span class="ms-2 small text-muted"><span style="display:inline-block;width:20px;border-top:2px solid rgb(34,197,94);vertical-align:middle"></span> Ambient</span>
-    <span class="ms-2 small text-muted"><span style="display:inline-block;width:20px;border-top:2px solid rgb(168,85,247);vertical-align:middle"></span> HVAC W</span>
-  </div>
-  <canvas id="tempChart"></canvas>
-  <button id="resetZoom" style="display:none" class="btn btn-sm btn-outline-secondary mt-2">Reset zoom</button>
-  <p id="noChartData" style="display:none" class="text-muted mb-0">No temperature history yet. Data will appear after the logging cron job runs.</p>
-</div>
 </div>
 
-<div class="card mb-3">
-<div class="card-header d-flex align-items-center justify-content-between">
-  <h5 class="mb-0">Monthly Statistics</h5>
-  <div class="btn-group btn-group-sm" role="group" aria-label="Units">
-    <input type="radio" class="btn-check" name="statsUnit" id="statsUnitF" value="f" autocomplete="off" checked>
-    <label class="btn btn-outline-secondary" for="statsUnitF">&deg;F</label>
-    <input type="radio" class="btn-check" name="statsUnit" id="statsUnitC" value="c" autocomplete="off">
-    <label class="btn btn-outline-secondary" for="statsUnitC">&deg;C</label>
-  </div>
+<div class="col-md-4">
+<div class="card" id="hvac-card">
+<div class="card-header text-bg-secondary" id="hvac-card-header">
+  <h5 class="mb-0">Hangar HVAC</h5>
 </div>
-<div class="card-body p-0" id="monthly-stats-body">
-  <div class="d-flex justify-content-center align-items-center py-4">
+<div class="card-body" id="hvac-card-body">
+  <div class="d-flex justify-content-center align-items-center py-3">
     <div class="spinner-border spinner-border-sm text-secondary me-2" role="status">
       <span class="visually-hidden">Loading...</span>
     </div>
-    <span class="text-muted small">Computing monthly stats&hellip;</span>
+    <span class="text-muted small">Reading dongle&hellip;</span>
   </div>
 </div>
 </div>
-<style>
-.stats-wrap.unit-c .unit-f,
-.stats-wrap:not(.unit-c) .unit-c { display: none; }
-.stats-table th.stats-metric-col,
-.stats-table td.stats-metric-col {
-  position: sticky; left: 0; z-index: 1;
-  background: var(--bs-table-bg, #fff);
-  white-space: nowrap;
-}
-.stats-table tr:nth-of-type(odd) td.stats-metric-col {
-  background: var(--bs-table-striped-bg, #f2f2f2);
-}
-.stats-table tr.stats-group td { background: #e9ecef; }
-.stats-table th, .stats-table td { white-space: nowrap; }
-</style>
-<script>
-// Init the °F/°C toggle. Idempotent — safe to call multiple times. Has to
-// be re-invoked after the monthly stats fetch swaps in #statsWrap, since
-// the wrap div doesn't exist at initial page load.
-function initStatsUnitToggle() {
-  var wrap = document.getElementById('statsWrap');
-  if (!wrap) return;
-  var saved = null;
-  try { saved = localStorage.getItem('statsUnit'); } catch (e) {}
-  if (saved === 'c') {
-    wrap.classList.add('unit-c');
-    var c = document.getElementById('statsUnitC');
-    if (c) c.checked = true;
-  }
-  document.querySelectorAll('input[name="statsUnit"]').forEach(function(r) {
-    if (r.dataset.unitBound) return;
-    r.dataset.unitBound = '1';
-    r.addEventListener('change', function() {
-      if (this.value === 'c') wrap.classList.add('unit-c');
-      else wrap.classList.remove('unit-c');
-      try { localStorage.setItem('statsUnit', this.value); } catch (e) {}
-    });
-  });
-}
-initStatsUnitToggle();
-</script>
-{% endif %}
+</div>
+
+</div>
 
 <div class="card mb-3">
 <div class="card-header"><h5 class="mb-0">Schedule</h5></div>
 <div class="card-body">
 {{ sched_msg }}
+<div class="row g-3">
+<div class="col-md{% if pending_sched_rows %}-7{% endif %}">
 <form action="switch.py" method="GET" class="row g-2 align-items-end" id="schedForm">
   <div class="col-auto">
     <label for="sched_dt" class="form-label mb-0 small">Date &amp; Time</label>
@@ -240,9 +151,10 @@ function schedHvacModeToggle() {
   });
 }
 </script>
+</div>
 {% if pending_sched_rows %}
-<hr>
-<h6>Pending</h6>
+<div class="col-md-5">
+<h6 class="mb-2 small text-uppercase text-muted">Pending</h6>
 <div class="table-responsive">
 <table class="table table-sm table-striped mb-0">
 <thead><tr><th>Time</th><th>Action</th><th></th></tr></thead>
@@ -251,9 +163,117 @@ function schedHvacModeToggle() {
 </tbody>
 </table>
 </div>
+</div>
 {% endif %}
 </div>
 </div>
+</div>
+
+{% if enable_temp %}
+</div>
+
+<div class="container-fluid">
+<div class="card mb-3">
+<div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+  <h5 class="mb-0">{{ chart_title }}</h5>
+  <span class="small text-muted">
+    <strong>Hangar:</strong> {{ temp_display }}{% if ambient_display %} &nbsp;&middot;&nbsp; <strong>Outdoor:</strong> {{ ambient_display }}{% endif %}
+  </span>
+</div>
+<div class="card-body">
+  <div class="mb-2 wx-collapsible" id="metar" style="display:none">
+    <div class="wx-summary" role="button" tabindex="0" aria-expanded="false"
+         onclick="toggleWxExpand(this.parentNode)"
+         onkeydown="wxKey(event, this.parentNode)"></div>
+    <div class="wx-body wx-decoded" onclick="toggleWxDecode(this)" style="display:none;cursor:pointer;white-space:pre-wrap"></div>
+  </div>
+  <div class="mb-3 wx-collapsible" id="taf" style="display:none">
+    <div class="wx-summary" role="button" tabindex="0" aria-expanded="false"
+         onclick="toggleWxExpand(this.parentNode)"
+         onkeydown="wxKey(event, this.parentNode)"></div>
+    <div class="wx-body wx-decoded" onclick="toggleWxDecode(this)" style="display:none;cursor:pointer;white-space:pre-wrap"></div>
+  </div>
+  <div class="mb-2">
+    <a href="switch.py?range=1d" class="btn btn-sm {{ 'btn-primary' if range == '1d' else 'btn-outline-primary' }}">1 Day</a>
+    <a href="switch.py?range=7d" class="btn btn-sm {{ 'btn-primary' if range == '7d' else 'btn-outline-primary' }}">7 Days</a>
+    <a href="switch.py?range=30d" class="btn btn-sm {{ 'btn-primary' if range == '30d' else 'btn-outline-primary' }}">30 Days</a>
+    <span class="ms-3 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(220,53,69,0.3);vertical-align:middle"></span> Heater on</span>
+    <span class="ms-2 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(13,110,253,0.3);vertical-align:middle"></span> Fan on</span>
+    <span class="ms-2 small text-muted"><span style="display:inline-block;width:12px;height:12px;background:rgba(255,152,0,0.3);vertical-align:middle"></span> &le; 48&deg;F</span>
+    <span class="ms-2 small text-muted"><span style="display:inline-block;width:6px;height:12px;background:rgba(219,39,119,0.6);vertical-align:middle"></span> Door open</span>
+    <span class="ms-2 small text-muted"><span style="display:inline-block;width:20px;border-top:2px solid rgb(75,192,192);vertical-align:middle"></span> Hangar</span>
+    <span class="ms-2 small text-muted"><span style="display:inline-block;width:20px;border-top:2px solid rgb(34,197,94);vertical-align:middle"></span> Ambient</span>
+    <span class="ms-2 small text-muted"><span style="display:inline-block;width:20px;border-top:2px solid rgb(168,85,247);vertical-align:middle"></span> HVAC W</span>
+  </div>
+  <canvas id="tempChart"></canvas>
+  <button id="resetZoom" style="display:none" class="btn btn-sm btn-outline-secondary mt-2">Reset zoom</button>
+  <p id="noChartData" style="display:none" class="text-muted mb-0">No temperature history yet. Data will appear after the logging cron job runs.</p>
+</div>
+</div>
+</div>
+
+<div class="container">
+<div class="card mb-3">
+<div class="card-header d-flex align-items-center justify-content-between">
+  <h5 class="mb-0">Monthly Statistics</h5>
+  <div class="btn-group btn-group-sm" role="group" aria-label="Units">
+    <input type="radio" class="btn-check" name="statsUnit" id="statsUnitF" value="f" autocomplete="off" checked>
+    <label class="btn btn-outline-secondary" for="statsUnitF">&deg;F</label>
+    <input type="radio" class="btn-check" name="statsUnit" id="statsUnitC" value="c" autocomplete="off">
+    <label class="btn btn-outline-secondary" for="statsUnitC">&deg;C</label>
+  </div>
+</div>
+<div class="card-body p-0" id="monthly-stats-body">
+  <div class="d-flex justify-content-center align-items-center py-4">
+    <div class="spinner-border spinner-border-sm text-secondary me-2" role="status">
+      <span class="visually-hidden">Loading...</span>
+    </div>
+    <span class="text-muted small">Computing monthly stats&hellip;</span>
+  </div>
+</div>
+</div>
+<style>
+.stats-wrap.unit-c .unit-f,
+.stats-wrap:not(.unit-c) .unit-c { display: none; }
+.stats-table th.stats-metric-col,
+.stats-table td.stats-metric-col {
+  position: sticky; left: 0; z-index: 1;
+  background: var(--bs-table-bg, #fff);
+  white-space: nowrap;
+}
+.stats-table tr:nth-of-type(odd) td.stats-metric-col {
+  background: var(--bs-table-striped-bg, #f2f2f2);
+}
+.stats-table tr.stats-group td { background: #e9ecef; }
+.stats-table th, .stats-table td { white-space: nowrap; }
+</style>
+<script>
+// Init the °F/°C toggle. Idempotent — safe to call multiple times. Has to
+// be re-invoked after the monthly stats fetch swaps in #statsWrap, since
+// the wrap div doesn't exist at initial page load.
+function initStatsUnitToggle() {
+  var wrap = document.getElementById('statsWrap');
+  if (!wrap) return;
+  var saved = null;
+  try { saved = localStorage.getItem('statsUnit'); } catch (e) {}
+  if (saved === 'c') {
+    wrap.classList.add('unit-c');
+    var c = document.getElementById('statsUnitC');
+    if (c) c.checked = true;
+  }
+  document.querySelectorAll('input[name="statsUnit"]').forEach(function(r) {
+    if (r.dataset.unitBound) return;
+    r.dataset.unitBound = '1';
+    r.addEventListener('change', function() {
+      if (this.value === 'c') wrap.classList.add('unit-c');
+      else wrap.classList.remove('unit-c');
+      try { localStorage.setItem('statsUnit', this.value); } catch (e) {}
+    });
+  });
+}
+initStatsUnitToggle();
+</script>
+{% endif %}
 
 </div>
 {% if enable_temp %}

@@ -85,7 +85,7 @@ The original BCD-vs-BINARY format question on `ac_total_kwh` is **resolved**, bu
 - **Single-radio AP+STA shares one channel.** `AP_CHAN` in the install script must match the hangar WiFi's current channel; hostapd refuses to start on a mismatch with "Could not set channel". If the hangar router roams channels, pin it.
 - **Files written by the script:**
   - `/etc/systemd/system/uap0.service` — creates the `uap0` virtual __ap interface on `wlan0`, gives it `192.168.50.1/24`
-  - `/etc/hostapd/hostapd.conf` — WPA2-PSK on `uap0`, channel hard-coded
+  - `/etc/hostapd/hostapd.conf` — WPA2-PSK on `uap0`, channel hard-coded, `logger_*_level=4` (warning+) to suppress per-association info noise — the Midea dongle keepalive cycles uap0 every ~30s and at default level 2 that produces thousands of lines/day filling log2ram's 128M tmpfs (resolved 2026-05-09)
   - `/etc/dnsmasq.d/uap0.conf` — DHCP `192.168.50.50–.150` on `uap0` only (`bind-interfaces` keeps it off `wlan0`)
   - `/etc/NetworkManager/conf.d/uap0-unmanaged.conf` (Bookworm) or `denyinterfaces uap0` in `/etc/dhcpcd.conf` (Bullseye) — keeps the system network manager from fighting hostapd over `uap0`
   - iptables MASQUERADE on `wlan0` + FORWARD rules, persisted via `iptables-persistent` / `netfilter-persistent`

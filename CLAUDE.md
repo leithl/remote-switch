@@ -100,6 +100,40 @@ The original BCD-vs-BINARY format question on `ac_total_kwh` is **resolved**, bu
   - **Most-misleading red herring:** the dongle looks "wedged and needing a power cycle" but isn't — `iw event -t -f` shows clean `new station` / `del station` pairs every cycle, dongle re-associates every time. We chased "BCM43438 wedge", "dongle keepalive timeout", "Midea cloud heartbeat retry", and "hostapd inactivity poll" before getting to the actual cause. None of those theories survive a `tcpdump` on `uap0` — that's the diagnostic that cuts through everything.
 - **Don't add a second AP for clients.** This bridge exists to pair an IoT device, not to serve users. Adding clients re-introduces all the throughput and channel-sharing issues we accept here.
 
+## Diagnosing "dongle unreachable" / HVAC outages — READ THIS BEFORE PLANNING A HANGAR TRIP
+
+The dongle being physically broken or "stuck and needing a power cycle" has **never been the actual cause** in this project's history. Every reachability outage so far has been Pi-side (UFW DHCP block) or pairing-side (token/cloud handshake). The dongle has self-recovered from every condition we've ever observed. A misdiagnosis here costs a 1-hour drive *and* leaves the hangar HVAC unmanaged in the meantime — so the bar for "the dongle is the problem" must be high.
+
+**Default assumption: the dongle is fine.** Run the playbook below before ever scheduling a trip. If the playbook is inconclusive, run it again 30 minutes later — most "stuck" symptoms unstick themselves while you're typing.
+
+**Pre-action diagnostic playbook.** Run in order. If a step shows the dongle reachable on its layer, the problem is above that layer; skip ahead.
+
+1. **Radio (L1/L2): is the dongle associated to uap0?** `sudo iw dev uap0 station dump`
+   - Station entry, `authorized: yes`, `tx bitrate > 10 MBit/s` → radio is healthy → step 3
+   - Station entry but `tx bitrate: 1.0 MBit/s` → "associated but L3 broken" — the UFW trap signature; go to step 2
+   - No station entry, repeated cycle in `iw event -t` → check hostapd, channel, signal
+2. **L3: does the dongle have an IP?** `sudo cat /var/lib/misc/dnsmasq.leases`
+   - Lease present → step 3
+   - Empty → run `sudo iptables -L ufw-after-input -nvx | grep "udp dpt:67"`. Counter > 0 means the UFW trap is firing — fix with `sudo ufw reload` (see UFW trap bullet above). If counter is 0, capture `tcpdump -i uap0 -nn -vv "port 67 or port 68"` for 60s and read whichever side of the conversation is missing.
+3. **IP reachability:** `ping -c2 192.168.50.<lease_ip>` then `timeout 3 bash -c "exec 3<>/dev/tcp/192.168.50.<lease_ip>/6444"`
+   - Both succeed → step 4
+   - Ping fails despite a lease → dongle in deep power-save; `sudo systemctl restart hostapd` to force re-association
+4. **App layer:** `sudo cat /run/heater-hvac.json` — if `epoch` is fresh (within last ~120s) and `power_w` is updating, msmart-ng is working and the issue is elsewhere (UI? scheduler? web app cache?). If stale, the dongle's auth token may have expired or the cloud handshake needs redoing — re-run `setup_hvac.py`.
+
+**The one diagnostic that cuts through everything before doing the playbook:** `sudo tcpdump -i uap0 -nn -vv "port 67 or port 68"` for 60s.
+- DHCPDISCOVERs out, no OFFER back → UFW trap (or dnsmasq down)
+- DHCPACK flowing but TCP/6444 still failing later → msmart-ng/auth issue, NOT the dongle
+- No DHCPDISCOVERs at all → radio/hostapd/dongle issue (and only this case justifies considering hardware)
+
+**Anti-patterns to skip.** We have burned time on each of these:
+- *"Power cycle the dongle"* — never been the right answer; the dongle self-recovers from everything we've seen. Last resort, only after the playbook above is exhausted AND a 30-min recheck still shows the same signature.
+- *"Restart hostapd as a first move"* — fixes only the BCM43438 AP+STA wedge, which is rare and we've never confirmed in the wild. Skip unless `iw event -t` shows associations *failing*, not just cycling.
+- *"Read dnsmasq journal first"* — useless for the UFW trap because dnsmasq doesn't see the dropped packets. `tcpdump` shows truth; dnsmasq doesn't. Don't enable `log-dhcp` and wait for it to tell you what's wrong — it will silently lie.
+- *"Read hostapd debug"* — hostapd accurately logs assoc/disassoc events but says nothing about *why* the dongle disassocs. Don't camp there.
+- *"Schedule a hangar trip"* — never the next step after a single failed poll. The playbook is ~5 minutes of typing; the trip is an hour each way.
+
+**The 2026-05-09 incident in one sentence so future-us has a reference point:** dongle appeared "wedged and reconnecting every 30s, needs power cycle"; actual cause was UFW silently dropping the dongle's DHCPDISCOVERs (`ufw-after-input` rule on `udp dpt:67`); fix was `ufw reload`; misdiagnosis would have cost a hangar trip to power-cycle a perfectly healthy dongle.
+
 ## HVAC module specifics (`hvac.py`)
 - **Source of truth for the hangar climate.** All Durastar/Midea code lives here; nothing else imports `msmart`.
 - **Lazy import:** `import msmart` happens only inside helper functions, so the WSGI app and cron jobs boot fine on a Pi that hasn't run `pip install msmart-ng` yet. `is_configured()` checks `.env` keys without ever touching the network.

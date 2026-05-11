@@ -66,16 +66,42 @@ The original BCD-vs-BINARY format question on `ac_total_kwh` is **resolved**, bu
 
 - **Apparent vs real power on the dongle's energy meter** — deferred to a hangar visit. See the "Decisive verification" sub-bullet above for the three possible measurement protocols.
 
-### Exhaust-fan effectiveness on the upper hangar volume (measured 2026-05-09)
+### Exhaust-fan effectiveness on the upper hangar volume — two windows, opposite signs
 
-- **Fan delivers ~2× the natural cooling rate on the ceiling thermistor over a 3 h window**, with a strong front-loaded mixing event in the first ~10 min and sustained bin-step cooling thereafter. Single afternoon measurement; bound the upper end with a hot-summer repeat. **The fan is doing real work, not just spinning.**
-- **Setup.** T0 = 2026-05-09 ~14:35 MDT (epoch 1778358903). Pi 79.0 °F, ceiling (`ac_indoor_f`) 87.8 °F, ambient 78.1 °F, HVAC FP-idle at 146 W (no compressor calling, FP setpoint 60.8 °F well below room). Fan flipped ON via `?fan_state=1`, held for 180 min, then `?fan_mode=auto`.
-- **T1 result.** Pi 75.0 °F (-4.0 °F), ceiling 81.5 °F (-6.3 °F), ambient 77.2 °F. Strat gap 8.8 → 6.5 °F. Time-averaged ambient over the window 77.91 °F.
-- **Natural-cooling counterfactual.** ΔT_natural = (87.8 − 77.91) × (1 − exp(−3 / 12.4)) = **2.12 °F**. Observed 6.3 °F → **fan-attributable cooling +4.18 °F on the ceiling, +1.4 °F/h above natural rate**.
-- **Bin-step cadence (`ac_indoor_f` is 0.5 °C quantized, so cooling shows up in 0.9 °F steps).** Steps landed at T+11, T+~75, T+95, T+115, T+135, T+~145, T+~175 min. The first step is the column-mixing flush; the rest are slower steady-state cooling that nominally appears as "flat" between transitions but isn't (DS18B20 floor probe, 0.1 °F resolution, dropped monotonically through every gap, confirming real cooling inside each bin).
-- **Contamination flags — clean.** 0 compressor-minutes. kWh delta 0.44 vs idle expected 0.438 (excess +0.002). No door events from `aggregate.detect_door_events()`. Ambient drifted ±0.9 °F across the window; not a confound.
-- **Method note.** During the bin-locked stretches, fan_attrib appears to decay toward zero and even cross negative; treat that as a quantization artifact, not a verdict. Always wait for the next ceiling bin transition before concluding "fan stalled" — the floor probe is the leading indicator. Any future paired-window test should run ≥3 h to span at least 2–3 bin steps.
-- **Open question for hotter days.** This window started at 87.8 °F with ambient at 78.1 °F — 9.7 °F driving differential. On a real summer day (ambient >85 °F, ceiling >100 °F) the fan likely *adds* heat by exhausting cooler hangar air and pulling hotter outdoor air through the inlet. Re-run when ambient regularly exceeds 80 °F; if observed cooling goes negative, the fan-on threshold (`config.FAN_TEMP_THRESHOLD_C`) needs an *ambient* gate too, not just an indoor gate.
+**Status as of 2026-05-11: the sign of fan effect is window-dependent and the controlling variable is not yet identified.** Two paired-window tests so far gave opposite results. Recording observations, not yet a theory.
+
+| | Day 1 (2026-05-09) | Day 2 (2026-05-10) |
+|---|---|---|
+| T0 local | 14:35 MDT (+1h45m past solar noon) | 12:51 MDT (+1 min past solar noon) |
+| Window length | 3 h | 5 h |
+| T0 ambient | 78.1 °F | 65.3 °F |
+| T0 ceiling (`ac_indoor_f`) | 87.8 °F | 84.2 °F |
+| T0 floor (`temp_c`, Pi DS18B20) | 79.0 °F | 76.3 °F |
+| Time-avg ambient over window | 77.9 °F | 67.6 °F |
+| Time-avg shortwave radiation (Open-Meteo) | ~530 W/m² | ~715 W/m² |
+| Cloud cover (Open-Meteo) | ≤ 11 % | ≤ 2 % |
+| Compressor minutes / door events | 0 / 0 | 0 / 0 |
+| Δ ceiling (T0 → T1) | **−6.3 °F (cooled)** | **+0.9 °F net (peaked +2.7 °F at T+130, partially recovered)** |
+| Δ floor (T0 → T1) | −4.0 °F | +0.3 °F net (peaked +1.6 °F at T+190) |
+| Natural-pred (τ=12.4 h, ceil − time-avg-amb) | 2.12 °F | 5.32 °F |
+| Fan-attrib at end of window | **+4.18 °F** | **−6.22 °F** |
+
+**Confounded variables — uncontrolled across the two windows. Don't attribute the sign flip to any single one yet:**
+- Start time vs solar noon (+1h45m vs +1m).
+- T0 ambient (78 vs 65 °F).
+- T0 ceiling (87.8 vs 84.2 °F).
+- Window length (3 vs 5 h — Day 2 captured both peak-sun *and* post-peak phases; Day 1 captured only post-peak).
+- Time-averaged shortwave radiation through the window (530 vs 715 W/m² — Day 2 had 35 % more total solar input).
+- Cloud cover (≤11 % vs ≤2 %) — both essentially clear-sky but slight difference.
+
+**Designed Day 3 experiment (queued for 2026-05-11 12:00 MDT, forecast ambient 87 °F):** same time-of-day as Day 2, hot ambient. If outcome resembles Day 1 (cooling), ambient or solar-during-window dominates over time-of-day. If outcome resembles Day 2 (net warming), time-of-day matters more than ambient. Wednesday (2026-05-13, similar forecast) for repeatability of Day 3's result. Three windows should let us start ranking the confounders.
+
+**Method notes that survived both windows (use these for any future test):**
+- `ac_indoor_f` is 0.5 °C quantized at the dongle (= 0.9 °F bin steps). During bin-locked stretches the fan-attrib trace appears to decay toward zero — that's a quantization artifact, not a verdict. Always wait for the next bin transition before concluding "fan stalled."
+- Floor probe (Pi DS18B20, 0.1 °F resolution) is the leading indicator inside each ceiling bin — watch it for direction-of-change first.
+- ≥5 h window is needed to span both peak-sun and post-peak phases in May; the 3 h Day-1 window missed the peak-sun phase entirely.
+- Contamination flags to verify clean before reporting each run: compressor minutes (`ac_power_w > 200`), door events (`aggregate.detect_door_events()`), kWh delta vs idle baseline (146 W × hours × 1000⁻¹ within ±0.02 kWh).
+- Pull Open-Meteo's hourly shortwave_radiation + cloud_cover for the window retroactively. Both prior tests were essentially clear-sky but the time-averaged W/m² differed substantially because of the part of the daily curve each window captured.
 
 ## Schedules
 - Stored in **disk DB only** — survive reboots with no extra effort.

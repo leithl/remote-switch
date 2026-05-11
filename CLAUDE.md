@@ -66,42 +66,49 @@ The original BCD-vs-BINARY format question on `ac_total_kwh` is **resolved**, bu
 
 - **Apparent vs real power on the dongle's energy meter** — deferred to a hangar visit. See the "Decisive verification" sub-bullet above for the three possible measurement protocols.
 
-### Exhaust-fan effectiveness on the upper hangar volume — two windows, opposite signs
+### Exhaust-fan effectiveness on the upper hangar volume — time-of-day dominates ambient
 
-**Status as of 2026-05-11: the sign of fan effect is window-dependent and the controlling variable is not yet identified.** Two paired-window tests so far gave opposite results. Recording observations, not yet a theory.
+**Status as of 2026-05-11 (three windows): the fan's effect on the upper hangar volume is dominated by solar elevation / time-of-day, not ambient temperature.** Day 3 held time-of-day approximately constant against Day 2 while varying ambient by 20 °F; the regime cross-over happened within 9 min of the same local clock time on both days, confirming time-of-day is the dominant driver. Day 1 was an outlier *because* its short 3 h window started late enough (14:35 MDT) to miss the peak-sun heating phase entirely.
 
-| | Day 1 (2026-05-09) | Day 2 (2026-05-10) |
-|---|---|---|
-| T0 local | 14:35 MDT (+1h45m past solar noon) | 12:51 MDT (+1 min past solar noon) |
-| Window length | 3 h | 5 h |
-| T0 ambient | 78.1 °F | 65.3 °F |
-| T0 ceiling (`ac_indoor_f`) | 87.8 °F | 84.2 °F |
-| T0 floor (`temp_c`, Pi DS18B20) | 79.0 °F | 76.3 °F |
-| Time-avg ambient over window | 77.9 °F | 67.6 °F |
-| Time-avg shortwave radiation (Open-Meteo) | ~530 W/m² | ~715 W/m² |
-| Cloud cover (Open-Meteo) | ≤ 11 % | ≤ 2 % |
-| Compressor minutes / door events | 0 / 0 | 0 / 0 |
-| Δ ceiling (T0 → T1) | **−6.3 °F (cooled)** | **+0.9 °F net (peaked +2.7 °F at T+130, partially recovered)** |
-| Δ floor (T0 → T1) | −4.0 °F | +0.3 °F net (peaked +1.6 °F at T+190) |
-| Natural-pred (τ=12.4 h, ceil − time-avg-amb) | 2.12 °F | 5.32 °F |
-| Fan-attrib at end of window | **+4.18 °F** | **−6.22 °F** |
+| | Day 1 (2026-05-09) | Day 2 (2026-05-10) | Day 3 (2026-05-11) |
+|---|---|---|---|
+| T0 local | 14:35 MDT | 12:51 MDT | 12:02 MDT |
+| Window length | 3 h | 5 h | 5 h |
+| T0 ambient | 78.1 °F | 65.3 °F | 80.6 °F |
+| T0 ceiling (`ac_indoor_f`) | 87.8 °F | 84.2 °F | 89.6 °F |
+| T0 floor (`temp_c`) | 79.0 °F | 76.3 °F | 80.8 °F |
+| Time-avg ambient over window | 77.9 °F | 67.6 °F | 84.8 °F |
+| Time-avg shortwave radiation (Open-Meteo) | ~530 W/m² | ~715 W/m² | ~900 W/m² |
+| Cloud cover (Open-Meteo) | ≤ 11 % | ≤ 2 % | ≤ 9 % |
+| Compressor minutes / door events | 0 / 0 | 0 / 0 | 0 / 0 |
+| Δ ceiling (T0 → T1) | **−6.3 °F (cooled)** | +0.9 °F net (peaked +2.7 °F at T+130) | **+3.6 °F (peaked +5.4 °F at T+220)** |
+| Δ floor (T0 → T1) | −4.0 °F | +0.3 °F (peaked +1.6 °F) | +3.8 °F (peaked +4.7 °F) |
+| Natural-pred (τ=12.4 h) | 2.12 °F | 5.32 °F | 1.59 °F |
+| Fan-attrib at end | **+4.18 °F** | **−6.22 °F** | **−5.19 °F** |
+| Regime cross-over (ceiling first downward bin step) | (already past — only-cooling window) | **16:51 MDT** (T+230) | **16:42 MDT** (T+280) |
 
-**Confounded variables — uncontrolled across the two windows. Don't attribute the sign flip to any single one yet:**
-- Start time vs solar noon (+1h45m vs +1m).
-- T0 ambient (78 vs 65 °F).
-- T0 ceiling (87.8 vs 84.2 °F).
-- Window length (3 vs 5 h — Day 2 captured both peak-sun *and* post-peak phases; Day 1 captured only post-peak).
-- Time-averaged shortwave radiation through the window (530 vs 715 W/m² — Day 2 had 35 % more total solar input).
-- Cloud cover (≤11 % vs ≤2 %) — both essentially clear-sky but slight difference.
+**What we can defend from these three windows (in order of confidence):**
 
-**Designed Day 3 experiment (queued for 2026-05-11 12:00 MDT, forecast ambient 87 °F):** same time-of-day as Day 2, hot ambient. If outcome resembles Day 1 (cooling), ambient or solar-during-window dominates over time-of-day. If outcome resembles Day 2 (net warming), time-of-day matters more than ambient. Wednesday (2026-05-13, similar forecast) for repeatability of Day 3's result. Three windows should let us start ranking the confounders.
+1. **Solar elevation drives the sign of fan effect.** Day 2 and Day 3 had very different ambient (65 °F vs 80 °F) and T0 (12:51 vs 12:02), but both crossed from net-warming to net-cooling at nearly the same *local clock time* — 16:51 and 16:42 MDT. The crossover correlates with the sun's apparent elevation in the sky, not elapsed-time since fan-on, not ambient, not T0 ceiling.
+2. **During peak-sun phase (roughly solar noon to ~16:30 MDT in May, ≥800 W/m² incident), the fan cannot keep up with roof solar gain.** The column warms; fan-attrib is solidly negative; the floor probe rises monotonically as the fan mixes ceiling-warm air downward.
+3. **After ~16:30 MDT (solar elevation dropping, incident <700 W/m²), the fan starts winning** and the column cools by 0.5 °C bin steps until the test ends.
+4. **Ambient temperature has a secondary effect** — it sets the absolute level of the cool-side equilibrium, but doesn't flip the sign. A 20 °F hotter ambient on Day 3 did *not* prevent the same time-of-day crossover seen on Day 2.
 
-**Method notes that survived both windows (use these for any future test):**
+**Still confounded between Day 2 and Day 3 (smaller effects, can be resolved by Day 4 control):**
+- T0 ceiling (84.2 vs 89.6 °F) — varies with morning solar accumulation, partly driven by ambient too.
+- Cloud cover (≤2 % vs ≤9 %) — both essentially clear-sky.
+- Wind speed / direction — never logged; may affect exhaust-fan throughput.
+
+**Day 4 designed experiment (Wed 2026-05-13, forecast 87 °F):** strict repeatability of Day 3. Same noon start, same 5 h, same protocol. If Day 4 reproduces Day 3's pattern (warming through ~16:30 MDT, then cooling), the time-of-day finding is solid. Any large deviation points to a missed variable.
+
+**Operational implication:** the existing `config.FAN_TEMP_THRESHOLD_C` auto-trigger gates on ceiling temp alone. In the peak-sun phase, auto-triggering when the threshold hits will *warm* the column further, opposite of intent. The threshold should also gate on solar elevation (or a proxy like local clock time — disable auto-fan before ~16:30 MDT). Not changing the threshold yet; flag this for design after Day 4.
+
+**Method notes that survived all three windows (use these for any future test):**
 - `ac_indoor_f` is 0.5 °C quantized at the dongle (= 0.9 °F bin steps). During bin-locked stretches the fan-attrib trace appears to decay toward zero — that's a quantization artifact, not a verdict. Always wait for the next bin transition before concluding "fan stalled."
 - Floor probe (Pi DS18B20, 0.1 °F resolution) is the leading indicator inside each ceiling bin — watch it for direction-of-change first.
-- ≥5 h window is needed to span both peak-sun and post-peak phases in May; the 3 h Day-1 window missed the peak-sun phase entirely.
+- ≥5 h window is needed to span both peak-sun and post-peak phases. The 3 h Day-1 window missed the peak-sun phase.
 - Contamination flags to verify clean before reporting each run: compressor minutes (`ac_power_w > 200`), door events (`aggregate.detect_door_events()`), kWh delta vs idle baseline (146 W × hours × 1000⁻¹ within ±0.02 kWh).
-- Pull Open-Meteo's hourly shortwave_radiation + cloud_cover for the window retroactively. Both prior tests were essentially clear-sky but the time-averaged W/m² differed substantially because of the part of the daily curve each window captured.
+- Pull Open-Meteo's hourly `shortwave_radiation` + `cloud_cover` retroactively for each window — different parts of the daily solar curve produce different time-averaged W/m² even on clear-sky days.
 
 ## Schedules
 - Stored in **disk DB only** — survive reboots with no extra effort.

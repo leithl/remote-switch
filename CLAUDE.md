@@ -66,77 +66,62 @@ The original BCD-vs-BINARY format question on `ac_total_kwh` is **resolved**, bu
 
 - **Apparent vs real power on the dongle's energy meter** — deferred to a hangar visit. See the "Decisive verification" sub-bullet above for the three possible measurement protocols.
 
-### Exhaust-fan effectiveness on the upper hangar volume — working hypothesis: roof-mounted fan installed in reverse
+### Exhaust-fan effectiveness on the upper hangar volume — Day 5 fan-OFF control changes the picture
 
-**Status as of 2026-05-13 (four windows + one historical control): the roof-mounted exhaust fan is likely installed in reverse, pushing roof-baked outdoor air DOWN into the hangar during peak sun instead of exhausting hangar air upward.** Pending physical confirmation at the hangar. The reversed-install hypothesis fits all four fan-ON days and the 3/21 fan-OFF control simultaneously; competing explanations (e.g., "fan ineffective in peak sun") leave the floor-exceeds-ambient signal on hot days unexplained.
+**Status as of 2026-05-14 (five windows: four fan-ON + Day 5 fan-OFF same-equipment-state control):** the column warms substantially in peak-sun regardless of fan state (Day 5 ceiling rose +9.0 °F with fan locked OFF for the full window). The fan *amplifies* the warming by ~5 °F at peak, but is not the primary heat source — solar gain through the roof is. The afternoon regime crossover happens at the same local clock time on fan-ON and fan-OFF days (16:40–16:55 MDT), confirming it's driven by solar elevation, not fan dynamics. The reversed-fan hypothesis remains consistent with the ~5 °F fan-attributable warming and the wider stratification gap on fan-on days, but a correctly-installed fan or no fan at all would still leave the column ~9 °F above T0 at peak — fixing the fan won't solve the daytime overheating problem.
 
-| | Day 1 (5/9) | Day 2 (5/10) | Day 3 (5/11) | Day 4 (5/13) |
-|---|---|---|---|---|
-| T0 local | 14:35 MDT | 12:51 MDT | 12:02 MDT | 12:05 MDT |
-| Window | 3 h | 5 h | 5 h | 5 h |
-| Fan | ON | ON | ON | ON |
-| T0 ambient | 78.1 °F | 65.3 °F | 80.6 °F | 77.7 °F |
-| T0 ceiling (`ac_indoor_f`) | 87.8 °F | 84.2 °F | 89.6 °F | 90.5 °F |
-| T0 floor (`temp_c`) | 79.0 °F | 76.3 °F | 80.8 °F | 82.6 °F |
-| Time-avg ambient | 77.9 °F | 67.6 °F | 84.8 °F | 85.3 °F |
-| Time-avg solar (Open-Meteo) | ~530 W/m² | ~715 W/m² | ~900 W/m² | ~928 W/m² |
-| Δ ceiling (T0 → T1) | **−6.3 °F (cooled)** | +0.9 (peaked +2.7) | +3.6 (peaked +5.4) | **+6.3 (peaked +9.0 at T+247)** |
-| Δ floor (T0 → T1) | −4.0 °F | +0.3 (peaked +1.6) | +3.8 (peaked +4.7) | **+5.2 (peaked +7.2)** |
-| Natural-pred (τ=12.4 h) | 2.12 °F | 5.32 °F | 1.59 °F | 1.72 °F |
-| Fan-attrib end | **+4.18 °F** | **−6.22 °F** | **−5.19 °F** | **−8.02 °F** |
-| Regime cross-over (1st downward ceiling bin) | (already past) | 16:51 MDT (T+230) | 16:42 MDT (T+280) | 16:55 MDT (T+290) |
-| Compressor min / door events | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
-| kWh delta vs idle expected | 0.44 / 0.438 | 0.74 / 0.73 | 0.73 / 0.73 | 0.73 / 0.73 |
+| | Day 1 (5/9) | Day 2 (5/10) | Day 3 (5/11) | Day 4 (5/13) | **Day 5 (5/14)** |
+|---|---|---|---|---|---|
+| T0 local | 14:35 | 12:51 | 12:02 | 12:05 | **12:00** |
+| Window | 3 h | 5 h | 5 h | 5 h | 5 h |
+| Fan | ON | ON | ON | ON | **OFF** |
+| T0 ambient | 78.1 | 65.3 | 80.6 | 77.7 | **82.4** |
+| T0 ceiling | 87.8 | 84.2 | 89.6 | 90.5 | **84.2** |
+| T0 floor | 79.0 | 76.3 | 80.8 | 82.6 | **79.9** |
+| Time-avg ambient | 77.9 | 67.6 | 84.8 | 85.3 | **84.7** |
+| Time-avg solar | ~530 W/m² | ~715 | ~900 | ~928 | ~? (clear-ish day) |
+| Δ ceiling end | −6.3 | +0.9 | +3.6 | +6.3 | **+9.0** |
+| Peak ceiling | (T0, only-cooling) | +2.7 (T+130) | +5.4 (T+220) | +9.0 (T+247) | **+9.9 (T+220-270)** |
+| Δ floor end | −4.0 | +0.3 | +3.8 | +5.2 | **+6.6** |
+| Peak floor over ambient | (below) | (below) | (just below) | **+0.9 above** | (matched) |
+| Crossover local | (already past) | 16:51 | 16:42 | 16:55 | **16:40** |
+| Compressor / door events | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 |
+| kWh delta vs idle | 0.44/0.44 | 0.74/0.73 | 0.73/0.73 | 0.73/0.73 | **0.74/0.73** |
 
-**Historical fan-OFF control (2026-03-21):** most recent matched-ambient fan-OFF day prior to the experiment series. Same Pi, same weather station. `ac_indoor_f` (ceiling) not yet logged at that date — floor probe comparison only.
+**Day 4 vs Day 5 head-to-head (same equipment state aside from fan):**
 
-| local | 3/21 floor | 3/21 ambient |
-|---|---|---|
-| 12:00 | 79.2 | 82.4 |
-| 12:30 | **82.6 (peak)** | 84.2 |
-| 14:00 | 82.4 | 87.4 |
-| 15:00 | 81.7 | **88.2 (peak)** |
-| 17:30 | 79.2 | 86.7 |
+| | Day 4 fan ON | Day 5 fan OFF | Fan-attrib |
+|---|---|---|---|
+| Peak ceiling | 99.5 °F | 94.1 °F | **+5.4** |
+| Peak floor | 89.8 °F | 87.1 °F | +2.7 |
+| Peak strat gap | 9.7 °F | 7.7 °F | +2.0 |
 
-3/21 had peak ambient 88.2 °F and peak solar 819 W/m² (clear morning, partial cloud after 15:00). **Floor capped 5.6 °F BELOW ambient peak.** Day 4 (similar ambient 88.9 °F peak, 24 % higher solar) reached peak floor 89.8 °F — **above** ambient. With fan: floor exceeds ambient. Without fan: floor caps well below ambient.
+**Defended findings (5-window confidence):**
 
-**Defended findings (high confidence):**
+1. **The afternoon crossover at 16:40–16:55 MDT is solar-driven, not fan-driven.** Day 5 with fan OFF crossed over at 16:40 MDT, well within the Day 2/3/4 fan-ON range (16:42–16:55). Sun altitude at that time is ~37° (well above local terrain horizon of ~4° — see geometry note below); the trigger is reduced solar *incidence* on the flat roof (cosine factor + atmospheric absorption), not local shading.
+2. **Roof solar gain dominates the daytime heat budget.** Day 5 ceiling rose +9.0 °F with no fan running and no compressor — pure roof radiation pumping heat into the column. The fan adds another ~5 °F on top at peak.
+3. **The fan *does* push column above ambient.** On Day 4 (fan ON), peak floor 89.8 °F exceeded peak ambient 88.9 °F by ~1 °F. On Day 5 (fan OFF), peak floor 87.1 °F matched ambient 86.5 °F. The fan-attributable floor warming of ~3 °F is consistent with the reversed-install hypothesis injecting roof-warmed air at fan-mount height.
+4. **The widening strat gap on fan-on days (9.7 vs 7.7 °F peak) supports reversed-install over a correctly-pulling fan** — a properly-exhausting fan would mix the column more vigorously and *narrow* the gap, not widen it. A reversed fan injecting hot air at ceiling height stratifies the column more, exactly as observed.
 
-1. **Solar elevation drives the sign of fan effect.** Day 2/3/4 had varied ambient (65 → 80 °F) and T0 (12:02 → 12:51), but all three crossed from net-warming to net-cooling within ~13 min of the same local clock time (16:42–16:55 MDT) — the time corresponding to when the roof surface drops below the column interior on a clear May day.
-2. **In peak-sun phase (~solar noon to 16:30 MDT in May, ≥800 W/m² incident), running the fan warms the column.** Floor exceeds ambient, ceiling gains 5–9 °F over T0, fan-attrib is solidly negative.
-3. **After ~16:30 MDT, the fan cools the column** — same hardware, opposite sign.
-4. **Ambient is secondary.** A 20 °F hotter ambient on Day 3 did not prevent the same time-of-day crossover seen on Day 2.
+**Earlier 3/21 historical control was confounded** — March solar elevation is ~20° lower than May. The March roof radiates ~25 % less heat into a still column than the May roof, so 3/21's "floor capped below ambient" finding doesn't isolate fan effect. With Day 5 as the matched-equipment control: Day 5 floor *matched* ambient peak, not *capped 5.6 °F below*. The 3/21 baseline shouldn't be cited as evidence of fan magnitude.
 
-**Mechanism — reversed roof-mount hypothesis:** if the fan pushes air DOWN through the roof opening instead of pulling it UP:
+**Mechanism — reversed roof-mount still consistent (~5 °F):**
 
-- The fan injects boundary-layer air from immediately above the roof — air preheated by the sun-baked roof surface and the rooftop fan housing itself (1006 W/m² incident on a clear day; metal/asphalt roofs routinely hit 130–150 °F).
-- Hot inflow enters at ceiling level, fighting natural buoyancy, but the strat gap stays ~7–9 °F because buoyancy keeps reasserting. Net result: the floor probe sees temps **above** outdoor ambient on a sunny day with the fan running.
-- Day 1's anomalous cooling fits: 14:35 MDT start, past the time when roof exceeds interior. Inflow is at-or-below interior temp by then → cooling.
-- The 16:30–17:00 MDT crossover across Day 2/3/4 = the daily moment when roof surface drops below interior — physically driven by solar elevation.
+- Fan ON, peak sun: fan injects roof-warmed air at ceiling level, ~5 °F worth of additional ceiling warming + wider stratification.
+- Fan OFF, peak sun: roof still radiates heat into the column passively (through ceiling material, convection through the fan opening if not sealed) — column rises ~9 °F either way.
+- Post-16:40 MDT: solar drops sharply; with fan, the inflow is now at-or-below interior temp so the fan briefly cools (Day 1's apparent "fan helps" outcome). Without fan, the column also cools from reduced roof input. Either way, the regime change is solar-time-of-day, not fan-driven.
+- The Friday smoke test (tissue paper at fan interior face) remains the definitive test of fan direction. Outcome doesn't change the ~5 °F effect size estimate above; it just confirms or refutes the mechanism explanation.
 
-**Diagnostic at the hangar (Friday visit):**
+**Operational implication:** even with a correctly-installed fan, the column would still rise ~9 °F at peak from solar through-roof. The `FAN_TEMP_THRESHOLD_C` auto-trigger should be re-thought: fan-on in peak sun adds ~5 °F (bad), but fan-on post-16:30 MDT may genuinely help (the column-ambient gradient flips). Pre-Friday: leave the threshold alone. Post-Friday hangar diagnosis: if reversed, swap the fan and re-test before changing thresholds.
 
-1. **Smoke test** on the fan's interior face. Tissue paper / smoke pulled toward fan = exhaust (correct). Pushed away = intake (reversed).
-2. **Touch the fan housing** on a sunny day. Hot = infiltrating air picks up that heat.
-3. **Inspect motor wiring** — single-phase capacitor-start fans can be wired either rotational direction.
-
-**Day 5 fan-OFF observational test (Thu 2026-05-14, queued):** Pi-side nohup scripts will lock fan to OFF at 11:55 MDT and restore auto at 17:05 MDT, independent of any Claude session. Forecast 86 °F / 56 % cloud. If Day 5 floor caps below ambient peak (3/21 pattern), the reversed-install hypothesis is supported by a recent-equipment-state control on top of the historical one.
-
-**Method notes that survived all four windows (use these for any future test):**
+**Method notes that survived all five windows:**
 - `ac_indoor_f` is 0.5 °C quantized at the dongle (= 0.9 °F bin steps). During bin-locked stretches the fan-attrib trace appears to decay toward zero — that's a quantization artifact, not a verdict. Always wait for the next bin transition before concluding "fan stalled."
-- Floor probe (Pi DS18B20, 0.1 °F resolution) is the leading indicator inside each ceiling bin — and the *only* signal available before 2026-05-09 (when `ac_indoor_f` was first logged).
-- ≥5 h window is needed to span both peak-sun and post-peak phases. The 3 h Day-1 window missed the peak-sun phase.
+- Floor probe (Pi DS18B20, 0.1 °F resolution) is the leading indicator inside each ceiling bin — and the *only* signal available before 2026-05-09 (when `ac_indoor_f` was first logged), which is why pre-May historical comparisons are limited.
+- ≥5 h window is needed to span both peak-sun and post-peak phases. The 3 h Day-1 window missed the peak-sun phase entirely.
 - Contamination flags to verify clean before reporting each run: compressor minutes (`ac_power_w > 200`), door events (`aggregate.detect_door_events()`), kWh delta vs idle baseline (146 W × hours × 1000⁻¹ within ±0.02 kWh).
-- Pull Open-Meteo's hourly `shortwave_radiation` + `cloud_cover` retroactively for each window — different parts of the daily solar curve produce different time-averaged W/m² even on clear-sky days.
-
-**Operational implication:** the existing `config.FAN_TEMP_THRESHOLD_C` auto-trigger gates on ceiling temp alone. In the peak-sun phase, auto-triggering when the threshold hits will *warm* the column further, opposite of intent. The threshold should also gate on solar elevation (or a proxy like local clock time — disable auto-fan before ~16:30 MDT). Not changing the threshold yet; flag this for design after Day 4.
-
-**Method notes that survived all three windows (use these for any future test):**
-- `ac_indoor_f` is 0.5 °C quantized at the dongle (= 0.9 °F bin steps). During bin-locked stretches the fan-attrib trace appears to decay toward zero — that's a quantization artifact, not a verdict. Always wait for the next bin transition before concluding "fan stalled."
-- Floor probe (Pi DS18B20, 0.1 °F resolution) is the leading indicator inside each ceiling bin — watch it for direction-of-change first.
-- ≥5 h window is needed to span both peak-sun and post-peak phases. The 3 h Day-1 window missed the peak-sun phase.
-- Contamination flags to verify clean before reporting each run: compressor minutes (`ac_power_w > 200`), door events (`aggregate.detect_door_events()`), kWh delta vs idle baseline (146 W × hours × 1000⁻¹ within ±0.02 kWh).
-- Pull Open-Meteo's hourly `shortwave_radiation` + `cloud_cover` retroactively for each window — different parts of the daily solar curve produce different time-averaged W/m² even on clear-sky days.
+- Pull Open-Meteo's hourly `shortwave_radiation` + `cloud_cover` retroactively for each window. Cross-season comparisons (e.g., March vs May) need explicit solar-elevation correction — the cosine factor on a flat roof at 40° latitude is ~30 % different between equinox and mid-May solar noon, which is enough to flip a "fan-attributable" magnitude estimate.
+- Compare fan-ON and fan-OFF days at *peak ceiling* not at *T1*, because the regime-change crossover happens before T+300 on a 12:00 MDT-start window. Day 4 T1 was post-crossover so its T1 ceiling under-represents the fan effect compared to peak.
+- For Day 5 specifically, pre-test fan was in `auto` mode overnight — same as Day 4 — so morning column states were comparable starting points; the Day 5 fan-off lock fired at 11:55 MDT via a nohup'd Pi-side bash script and held until 17:05 MDT.
 
 ## Schedules
 - Stored in **disk DB only** — survive reboots with no extra effort.

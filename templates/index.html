@@ -308,6 +308,16 @@ function buildRangeData(data, ranges) {
 }
 var heaterData = buildRangeData(data, heaterRanges);
 var fanData = buildRangeData(data, fanRanges);
+// Align sparse powerData (only buckets above the 200W threshold) to data's
+// x-values with null in the gaps. Chart.js tooltip.mode='index' looks items
+// up by array index across datasets, so a sparse dataset misses tooltips
+// at the very x positions where it does have a point. Heater/fan get the
+// same treatment via buildRangeData above.
+var powerByX = {};
+powerData.forEach(function(p) { powerByX[p.x] = p.y; });
+var powerDataAligned = data.map(function(d) {
+  return { x: d.x, y: powerByX[d.x] !== undefined ? powerByX[d.x] : null };
+});
 // Inline cold-band plugin: replaces chartjs-plugin-annotation (~12 KB) for
 // the single use case of drawing orange boxes over cold-temp ranges.
 var coldBandPlugin = {
@@ -399,7 +409,7 @@ if (data.length > 0) {
         // gaps render as line breaks. pointRadius is small but non-zero so
         // isolated single-minute cycles still show as dots when they don't
         // have neighbors to form a line segment.
-        data: powerData,
+        data: powerDataAligned,
         borderColor: 'rgb(168, 85, 247)',
         backgroundColor: 'rgb(168, 85, 247)',
         fill: false,

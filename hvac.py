@@ -18,12 +18,22 @@ The UI shows reported by default; commanded is surfaced only when they differ
 """
 
 import asyncio
+import grp
 import json
 import os
 from datetime import datetime
 from pathlib import Path
 
 import config
+
+# log_temp.py (root, cron) and switch.py (www-data, WSGI) both rewrite the
+# HVAC cache. Without a shared group, whichever process touches it first
+# locks the other out — and every silently-failed WSGI write left the UI
+# showing stale state for up to 60s after every Apply click. See _write_cache.
+try:
+    _WWW_DATA_GID = grp.getgrnam("www-data").gr_gid
+except KeyError:
+    _WWW_DATA_GID = None
 
 # ---------------------------------------------------------------------------
 # Paths and constants
@@ -212,6 +222,11 @@ def _write_cache(cache):
         HVAC_CACHE.parent.mkdir(parents=True, exist_ok=True)
         HVAC_CACHE.write_text(json.dumps(cache))
         os.chmod(str(HVAC_CACHE), 0o664)
+        if _WWW_DATA_GID is not None:
+            try:
+                os.chown(str(HVAC_CACHE), -1, _WWW_DATA_GID)
+            except (OSError, PermissionError):
+                pass
     except OSError:
         pass
 

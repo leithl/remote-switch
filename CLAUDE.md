@@ -134,6 +134,34 @@ The dongle being physically broken or "stuck and needing a power cycle" has **ne
 
 **The 2026-05-09 incident in one sentence so future-us has a reference point:** dongle appeared "wedged and reconnecting every 30s, needs power cycle"; actual cause was UFW silently dropping the dongle's DHCPDISCOVERs (`ufw-after-input` rule on `udp dpt:67`); fix was `ufw reload`; misdiagnosis would have cost a hangar trip to power-cycle a perfectly healthy dongle.
 
+## Diagnosing "HVAC Apply doesn't stick" / UI shows stale state after clicking Apply
+
+Form submits, browser redirects, status card stays the same. The dongle and msmart-ng are almost certainly fine — the unit DID switch. The bug is cache visibility, and it has one classic cause on this stack.
+
+**One-command diagnostic:** `sudo ls -la /run/heater-hvac.json`
+- `root:www-data` mode 664 → both sides can write → bug not present, look elsewhere
+- `root:root` mode 664 → WSGI (www-data) can't update the cache → bug present
+
+**Cross-check the unit actually changed mode:** the per-minute readings in `/run/heater.db` are written by `log_temp.py` as root and don't suffer this bug.
+```bash
+sudo python3 -c "import sqlite3; \
+  [print(r) for r in sqlite3.connect('/run/heater.db').execute( \
+   \"SELECT datetime(epoch,'unixepoch','-6 hours'), ac_state, ac_power_w \
+    FROM readings ORDER BY epoch DESC LIMIT 10\")]"
+```
+If `ac_state` flipped (1=heat/freeze → 2=cool, etc.) within 1–2 minutes of the Apply click, the unit accepted the change and only the cache is wrong.
+
+**Mechanism.** `log_temp.py` runs as root via cron, `switch.py` runs as `www-data` via mod_wsgi. Both write `/run/heater-hvac.json`. If root creates the file first at boot, it's `root:root` mode 664 and `www-data` has no group write. Every WSGI `set_state` after that sends the SetState to the dongle successfully *(the unit DOES switch)* but `_write_cache` hits a `PermissionError` that the inner `try/except OSError` swallows. The cache then keeps showing the previous root poll until the next cron tick (≤60s) reads the unit and overwrites with the truth — and the `commanded` view (which only `set_state` writes) stays `null` indefinitely.
+
+**Fix.** `hvac.py:_write_cache` chowns the file to `:www-data` after every successful write so both sides can write. The file lives in tmpfs so the bug returns on every reboot until the fix is deployed. One-shot manual recovery on a stuck Pi: `sudo chown root:www-data /run/heater-hvac.json` (good until next reboot).
+
+**Anti-patterns to skip.** Each of these was chased before getting to the cache-perms answer:
+- *"The dongle is rejecting the FP→Cool transition"* — easy to suspect because LAN-FP is known to be quirky on this Durastar. But the per-minute log proves the unit transitioned; the cross-check above settles it in seconds.
+- *"`set_state` is exception-failing silently"* — the outer `except Exception: return False` only catches `_apply()` errors. `_write_cache`'s `OSError` is caught *inside* the function and never reaches the outer handler, so the function returns `True` while the cache is unchanged.
+- *"User is clicking Freeze Prevention preset by accident"* — Apache access log disambiguates instantly: grep for `hvac_apply=1` and read the actual query string.
+
+**The 2026-05-15 incident in one sentence:** Apply (Cool/72°F) clicked 3 times, UI kept showing Freeze/61°F; per-minute log proved the unit transitioned to Cool within 30s of the first click; cache was owned `root:root` so WSGI couldn't update it; fix was a chown in `_write_cache`.
+
 ## HVAC module specifics (`hvac.py`)
 - **Source of truth for the hangar climate.** All Durastar/Midea code lives here; nothing else imports `msmart`.
 - **Lazy import:** `import msmart` happens only inside helper functions, so the WSGI app and cron jobs boot fine on a Pi that hasn't run `pip install msmart-ng` yet. `is_configured()` checks `.env` keys without ever touching the network.

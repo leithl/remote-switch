@@ -49,6 +49,12 @@ systemctl unmask hostapd
 systemctl stop hostapd dnsmasq || true
 
 echo "Writing /etc/systemd/system/uap0.service..."
+# ExecStartPost reloads UFW once uap0 exists. iptables silently drops rules
+# that name an interface missing at load time; ufw.service starts before
+# uap0.service, so without this the "allow in on uap0" survives in
+# /etc/ufw/user.rules but never reaches ufw-user-input — and the dongle's
+# DHCPDISCOVERs on UDP/67 get killed by ufw-after-input on every boot. The
+# "-" prefix makes it a no-op when UFW isn't installed/active.
 cat > /etc/systemd/system/uap0.service <<EOF
 [Unit]
 Description=Create uap0 virtual AP interface
@@ -62,6 +68,7 @@ RemainAfterExit=yes
 ExecStart=/sbin/iw dev wlan0 interface add uap0 type __ap
 ExecStart=/sbin/ip addr add ${AP_NET}.1/24 dev uap0
 ExecStart=/sbin/ip link set uap0 up
+ExecStartPost=-/usr/sbin/ufw reload
 ExecStop=/sbin/iw dev uap0 del
 
 [Install]

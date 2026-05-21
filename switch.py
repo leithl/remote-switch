@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import aggregate
 import config
+import flashair
 import hvac
 
 try:
@@ -521,6 +522,11 @@ def _handle(environ):
             amb_f = amb_c * 1.8 + 32
             ambient_display = f"{amb_c:.1f} \u00b0C | {amb_f:.1f} \u00b0F"
 
+    # --- FlashAir sync status (opt-in via FLASHAIR_STATUS_URL in .env) ---
+    # Reads the cron-written /run/heater-flashair.json. None when not
+    # configured or no cache exists yet; the template skips the line.
+    flashair_display = flashair.display_text() if flashair.is_configured() else None
+
     # --- HVAC state — lazy-loaded by client JS via ?hvac_state=1 ---
     # The dongle round-trip can take 3-4s on cache miss; deferring it drops
     # main TTFB. is_configured() is a cheap .env check, kept here so the
@@ -678,6 +684,7 @@ def _handle(environ):
         pending_sched_rows=pending_sched_rows,
         now_dt_min=now_dt_min,
         now_str=now_str,
+        flashair_display=flashair_display,
         # HVAC — the card body (with live state + apply form) is loaded via
         # JS through ?hvac_state=1; only the static enums needed by the
         # schedule form's dropdowns and the spinner header are passed here.

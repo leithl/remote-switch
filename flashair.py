@@ -1,117 +1,53 @@
 """
-flashair.py — Consume the flashair-sync daemon's /status endpoint.
+flashair.py — Read the flashair-sync daemon's status file.
 
-flashair-sync runs on a separate Pi (the `pi` host) as a systemd daemon and
-serves a single-line JSON status at `GET /status` on TCP/8765. This module
-polls it once a minute via log_temp.py, caches the answer to
-`/run/heater-flashair.json`, and exposes a one-line display string to
-switch.py.
+flashair-sync runs on this same Pi as a separate systemd daemon (User=pi)
+and writes `/run/heater-flashair.json` on every sync state change. This
+module reads that file at page-render time and exposes a one-line display
+string to switch.py — no HTTP, no localhost loopback, no cron poll.
 
-Cache contract (mirrors upstream verbatim plus `stale`, set by this
-consumer on fetch failure or upstream-too-old):
+File contract (written by flashair-sync, see its README "Status file"):
 
     {"epoch": <int>, "last_sync_epoch": <int|None>,
      "last_sync_files_n": <int>, "transferring": <bool>,
-     "current_file": <str|None>, "stale": <bool>}
+     "current_file": <str|None>}
 
-Opt-in: surface only when `FLASHAIR_STATUS_URL` is present in .env (the
-key may be set to an empty value to use the default URL). Without the
-key the cache is never written and the UI shows nothing.
-
-Mirrors the `/run/heater-hvac.json` pattern: tmpfs cache, 0664 perms so
-both cron (root) and WSGI (www-data) can read it, never raises.
+Opt-in: surface only when `/run/heater-flashair.json` exists. Installs
+that don't run flashair-sync on this Pi see nothing in the UI; no env
+config required.
 """
 
 import json
-import os
-import urllib.error
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-import config
-
-FLASHAIR_CACHE     = Path("/run/heater-flashair.json")
-DEFAULT_URL        = "http://pi.local:8765/status"
-FETCH_TIMEOUT_SECS = 5
-# Treat the cache as "unreachable" when its epoch is older than this. The
-# cron writes every minute, so 120s gives one missed cycle of grace.
-STALE_AFTER_SECS   = 120
+FLASHAIR_STATUS_FILE = Path("/run/heater-flashair.json")
+# Treat the file as "unreachable" when its epoch is older than this. The
+# upstream daemon writes at every transferring on/off transition and at
+# every sync record, so 120s gives a generous grace window before we
+# call it stale (covers the idle-between-syncs gap).
+STALE_AFTER_SECS = 120
 
 
 # ---------------------------------------------------------------------------
-# Config
+# Opt-in / cache read
 # ---------------------------------------------------------------------------
-
-def status_url():
-    """Return the configured upstream URL, or None if the key is absent."""
-    env = config.load_env()
-    if "FLASHAIR_STATUS_URL" not in env:
-        return None
-    val = env.get("FLASHAIR_STATUS_URL", "").strip()
-    return val or DEFAULT_URL
-
 
 def is_configured():
-    return status_url() is not None
+    """True when flashair-sync is running on this Pi (its status file exists)."""
+    return FLASHAIR_STATUS_FILE.exists()
 
-
-# ---------------------------------------------------------------------------
-# Cache I/O
-# ---------------------------------------------------------------------------
 
 def _now_epoch():
     return int(datetime.now().timestamp())
 
 
-def _write_cache(payload):
-    """Write the cache file with 0664 perms. Never raises."""
-    try:
-        FLASHAIR_CACHE.parent.mkdir(parents=True, exist_ok=True)
-        FLASHAIR_CACHE.write_text(json.dumps(payload))
-        os.chmod(str(FLASHAIR_CACHE), 0o664)
-    except OSError:
-        pass
-
-
 def read_cache():
-    """Return the parsed cache dict, or None if absent / unreadable."""
+    """Return the parsed status dict, or None if absent / unreadable."""
     try:
-        return json.loads(FLASHAIR_CACHE.read_text())
+        return json.loads(FLASHAIR_STATUS_FILE.read_text())
     except (OSError, ValueError):
         return None
-
-
-# ---------------------------------------------------------------------------
-# Polling (called from log_temp.py do_log)
-# ---------------------------------------------------------------------------
-
-def refresh_cache():
-    """Fetch upstream, update the cache. Never raises.
-
-    On fetch failure (timeout, connect refused, JSON parse error, anything)
-    the cache is written with `stale: true` and a fresh epoch — that way the
-    UI's `now - epoch > 120s` check still distinguishes "we just tried and
-    couldn't reach it" from "the cron itself stopped running".
-    """
-    if not is_configured():
-        return
-    url = status_url()
-    try:
-        with urllib.request.urlopen(url, timeout=FETCH_TIMEOUT_SECS) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        cache = dict(data)
-        cache["stale"] = False
-    except Exception:
-        cache = {
-            "epoch": _now_epoch(),
-            "last_sync_epoch": None,
-            "last_sync_files_n": 0,
-            "transferring": False,
-            "current_file": None,
-            "stale": True,
-        }
-    _write_cache(cache)
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +83,7 @@ def display_text(cache=None, now_epoch=None):
         now_epoch = _now_epoch()
 
     epoch = cache.get("epoch") or 0
-    if cache.get("stale") or (now_epoch - epoch) > STALE_AFTER_SECS:
+    if (now_epoch - epoch) > STALE_AFTER_SECS:
         return "unreachable"
 
     if cache.get("transferring"):

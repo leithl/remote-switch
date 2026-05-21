@@ -28,7 +28,7 @@ Files:
 - `/run/heater.db` — RAM (tmpfs). **Only holds `readings` table.** Written every minute by cron.
 - `/run/heater-ambient.tmp` — Ambient temp cache, 15-min TTL, ~50 bytes. Written ~96×/day.
 - `/run/heater-hvac.json` — Cached HVAC dongle state (reported + commanded views), 30s TTL, ~400 bytes. Written every minute by `log_temp.py` (via `hvac.state_for_log()`) and on every HVAC apply.
-- `/run/heater-flashair.json` — Cached flashair-sync `/status` payload (last sync epoch + file count + transferring flag), ~200 bytes. Written every minute by `log_temp.py` (via `flashair.refresh_cache()`); opt-in via `FLASHAIR_STATUS_URL` in `.env`. Surfaces "FlashAir: N files, X ago" in the chart-card header.
+- `/run/heater-flashair.json` — flashair-sync status (last sync epoch + file count + transferring flag), ~200 bytes. **Written by the flashair-sync daemon** (separate systemd service running as `pi` on this same Pi) on every sync state change — not by `log_temp.py`. Read by `switch.py` at page-render time. The "opt-in" knob is just whether flashair-sync is running on this host: file present → UI line appears; file absent → UI line hidden. Surfaces "FlashAir: N files, X ago" in the chart-card header.
 - `/var/lib/heater/heater.db` — Disk (SD card). Holds `readings` + `schedules` + `monthly_cache`. Written **only weekly** (`log_temp.py flush`) and **monthly** (`log_temp.py rollup`), plus when the user adds/cancels a schedule (rare).
 - The web UI ATTACHes both DBs and reads from both — no data gap between flushes.
 

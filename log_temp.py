@@ -22,7 +22,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import aggregate
 import config
-import flashair
 import hvac
 
 
@@ -263,12 +262,6 @@ def do_log():
             os.chmod(str(db_path), 0o664)
         except OSError:
             pass
-
-    # Refresh /run/heater-flashair.json from the flashair-sync daemon's
-    # /status endpoint on the `pi` host. No-op when not configured;
-    # refresh_cache() catches all exceptions internally so a network blip
-    # cannot fail the cron tick.
-    flashair.refresh_cache()
 
 
 # ---------------------------------------------------------------------------

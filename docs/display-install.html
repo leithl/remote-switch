@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hangar display — install</title>
+  <style>
+    :root {
+      --bg: #0d0e10;
+      --panel: #16181d;
+      --rule: #2a2d33;
+      --fg: #e6e7eb;
+      --fg-dim: #9b9ea6;
+      --fg-very-dim: #6a6d75;
+      --accent: #6ec8ff;
+      --warn: #ffb44a;
+      --bad: #ff6258;
+      --ok: #84d99c;
+      --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 1.5rem;
+      background: var(--bg);
+      color: var(--fg);
+      font: 15px/1.55 var(--sans);
+      max-width: 880px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    h1 {
+      font-size: 1.65rem;
+      margin: 0 0 0.25rem;
+    }
+    h2 {
+      font-size: 1.15rem;
+      margin: 2rem 0 0.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--rule);
+      color: var(--accent);
+    }
+    h3 {
+      font-size: 1rem;
+      margin: 1.25rem 0 0.5rem;
+      color: var(--fg-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .lede {
+      color: var(--fg-dim);
+      margin: 0 0 1.5rem;
+    }
+    code, pre, kbd {
+      font-family: var(--mono);
+      font-size: 0.9em;
+    }
+    code {
+      background: var(--panel);
+      padding: 0.1em 0.35em;
+      border-radius: 3px;
+    }
+    pre {
+      background: var(--panel);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      padding: 0.75rem 1rem;
+      overflow-x: auto;
+      margin: 0.5rem 0 1rem;
+    }
+    pre code { background: none; padding: 0; }
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.7rem;
+      margin: 0.4rem 0;
+      padding: 0.35rem 0;
+    }
+    .step input[type=checkbox] {
+      flex: 0 0 auto;
+      width: 22px;
+      height: 22px;
+      margin-top: 1px;
+      cursor: pointer;
+      accent-color: var(--ok);
+    }
+    .step-body {
+      flex: 1;
+      min-width: 0;
+    }
+    .step.done .step-body {
+      color: var(--fg-very-dim);
+      text-decoration: line-through;
+    }
+    .step.done pre, .step.done code {
+      opacity: 0.5;
+    }
+    .note {
+      border-left: 3px solid var(--warn);
+      background: var(--panel);
+      padding: 0.65rem 0.9rem;
+      margin: 0.75rem 0;
+      border-radius: 0 4px 4px 0;
+      font-size: 0.93em;
+    }
+    .note.danger { border-left-color: var(--bad); }
+    .note.tip    { border-left-color: var(--accent); }
+    .note strong { color: var(--warn); }
+    .note.danger strong { color: var(--bad); }
+    .note.tip strong    { color: var(--accent); }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 0.5rem 0 1rem;
+      font-size: 0.93em;
+    }
+    th, td {
+      border-bottom: 1px solid var(--rule);
+      padding: 0.45rem 0.6rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { color: var(--fg-dim); font-weight: 600; font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.05em; }
+    td code { font-size: 0.95em; }
+    .pinmap td:nth-child(1) { font-weight: 600; }
+    .pinmap td:nth-child(2),
+    .pinmap td:nth-child(3) { font-family: var(--mono); color: var(--accent); }
+    .pinmap tr.power td:nth-child(2),
+    .pinmap tr.power td:nth-child(3) { color: var(--warn); }
+    .pinmap tr.gnd td:nth-child(2),
+    .pinmap tr.gnd td:nth-child(3) { color: var(--fg-dim); }
+    .reset {
+      margin-top: 2.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--rule);
+      text-align: center;
+    }
+    .reset button {
+      background: var(--panel);
+      color: var(--fg-dim);
+      border: 1px solid var(--rule);
+      padding: 0.4rem 0.9rem;
+      border-radius: 4px;
+      font: inherit;
+      font-size: 0.85em;
+      cursor: pointer;
+    }
+    .reset button:hover {
+      background: var(--rule);
+      color: var(--fg);
+    }
+    .progress {
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      padding: 0.6rem 0;
+      margin: -1.5rem -1.5rem 1.5rem;
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+      border-bottom: 1px solid var(--rule);
+      font-size: 0.85em;
+      color: var(--fg-dim);
+      z-index: 10;
+    }
+    .progress-bar {
+      height: 3px;
+      background: var(--rule);
+      border-radius: 2px;
+      margin-top: 0.35rem;
+      overflow: hidden;
+    }
+    .progress-bar > div {
+      height: 100%;
+      background: var(--ok);
+      transition: width 0.3s ease;
+    }
+    @media print {
+      .progress, .reset { display: none; }
+      body { color: black; background: white; max-width: none; }
+      h2 { color: black; border-top-color: #ccc; }
+      h3, .lede { color: #444; }
+      pre, code { background: #f4f4f4; color: black; }
+      .note { background: #fafafa; }
+      .step.done .step-body { text-decoration: none; color: #888; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="progress">
+  <span id="progress-text">0 of 0 steps done</span>
+  <div class="progress-bar"><div id="progress-fill" style="width: 0%"></div></div>
+</div>
+
+<h1>Hangar display — install</h1>
+<p class="lede">
+  Wiring + software cheat-sheet for the 3.2" ILI9341 SPI display on
+  <code>pi.vpn</code>. Check off each step as you go — progress is saved
+  in this browser.
+</p>
+
+<h2>Parts check</h2>
+<div class="step">
+  <input type="checkbox" id="p1">
+  <div class="step-body"><label for="p1"><strong>3.2" ILI9341 SPI display</strong> (Pasotim MSP3218 or equivalent) — 320×240, ILI9341 driver, SPI interface, 3.3V/5V logic.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="p2">
+  <div class="step-body"><label for="p2"><strong>Female-to-female jumper wires</strong> (Dupont, 20cm) — need 8 minimum, get 10+ as spares.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="p3">
+  <div class="step-body"><label for="p3">Display inspected — no bent pins, no damage in transit, PCB markings include "ILI9341" or "MSP3218".</label></div>
+</div>
+
+<h2>Power down before wiring</h2>
+<div class="note danger">
+  <strong>Important:</strong> shut the Pi cleanly before wiring. The Pi's GPIO is not hot-pluggable, and a wiring slip with the Pi powered can fry both ends.
+</div>
+<div class="step">
+  <input type="checkbox" id="d1">
+  <div class="step-body"><label for="d1">SSH in and shut down cleanly.<pre><code>ssh pi.vpn
+sudo systemctl poweroff</code></pre>Wait for the green ACT LED to stop blinking, then unplug power.</label></div>
+</div>
+
+<h2>Wiring</h2>
+<p>Pi Zero W 40-pin header. <strong>All 8 connections to the display use 3.3V logic and 3V3 power</strong> — do <em>not</em> wire VCC to the Pi's 5V rail even though the display says it accepts 5V.</p>
+
+<table class="pinmap">
+  <thead>
+    <tr><th>Display pin</th><th>Pi BCM</th><th>Pi header pin</th><th>Notes</th></tr>
+  </thead>
+  <tbody>
+    <tr class="power"><td>VCC</td><td>3V3</td><td>1</td><td>Power. Use 3V3, not 5V.</td></tr>
+    <tr class="gnd"><td>GND</td><td>GND</td><td>6</td><td>Any GND pin works (6/9/14/20/25/30/34/39).</td></tr>
+    <tr><td>CS</td><td>BCM 8</td><td>24</td><td>SPI0 CE0 — display chip select.</td></tr>
+    <tr><td>RESET</td><td>BCM 25</td><td>22</td><td>Display reset, driven by luma.lcd at init.</td></tr>
+    <tr><td>DC</td><td>BCM 24</td><td>18</td><td>Data / command select.</td></tr>
+    <tr><td>SDI / MOSI</td><td>BCM 10</td><td>19</td><td>SPI MOSI.</td></tr>
+    <tr><td>SCK</td><td>BCM 11</td><td>23</td><td>SPI clock.</td></tr>
+    <tr class="power"><td>LED</td><td>3V3</td><td>17</td><td>Backlight, always-on. PWM dimming via GPIO is a later option.</td></tr>
+  </tbody>
+</table>
+
+<p>Touch pins on the display (<code>T_CS</code>, <code>T_CLK</code>, <code>T_DIN</code>, <code>T_DO</code>, <code>T_IRQ</code>) and <code>SDO / MISO</code> are <strong>left unconnected</strong> for now — touch handling lands in a follow-up after first-light.</p>
+
+<div class="note tip">
+  <strong>Tip:</strong> use consistent jumper colors so you can trace at a glance — red = 3V3, black = GND, anything else for signals. Verify each jumper end-to-end with a continuity test (or just gently tug) before powering on.
+</div>
+
+<div class="step">
+  <input type="checkbox" id="w1">
+  <div class="step-body"><label for="w1">All 8 wires connected, double-checked against the table above.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="w2">
+  <div class="step-body"><label for="w2">No wires touching adjacent header pins (a misalignment by one pin grounds 3V3 → fry).</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="w3">
+  <div class="step-body"><label for="w3">Pi powered back on. Green ACT LED blinking normally.</label></div>
+</div>
+
+<h2>Enable SPI</h2>
+<p>The Pi's SPI peripheral is off by default. luma.lcd won't work without it.</p>
+<div class="step">
+  <input type="checkbox" id="s1">
+  <div class="step-body"><label for="s1">SSH back in and enable SPI.<pre><code>ssh pi.vpn
+sudo raspi-config nonint do_spi 0</code></pre>That edits <code>/boot/firmware/config.txt</code> (Bookworm) or <code>/boot/config.txt</code> (older) to add <code>dtparam=spi=on</code>.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="s2">
+  <div class="step-body"><label for="s2">Reboot so the SPI overlay loads.<pre><code>sudo reboot</code></pre></label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="s3">
+  <div class="step-body"><label for="s3">Verify SPI is loaded after reboot — <code>spi_bcm2835</code> should appear.<pre><code>ssh pi.vpn
+lsmod | grep spi
+ls /dev/spidev*</code></pre>You should see <code>/dev/spidev0.0</code> and <code>/dev/spidev0.1</code>.</label></div>
+</div>
+
+<h2>Install luma.lcd</h2>
+<div class="step">
+  <input type="checkbox" id="i1">
+  <div class="step-body"><label for="i1">Install the driver. On Bookworm, pip needs the <code>--break-system-packages</code> flag (or use a venv — this project doesn't, so match the existing convention).<pre><code>sudo pip install luma.lcd --break-system-packages</code></pre></label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="i2">
+  <div class="step-body"><label for="i2">Pull the latest branch with display.py / display_loop.py / display.service.<pre><code>cd /usr/lib/cgi-bin/remote-switch
+sudo -u leith git pull</code></pre>(Match the deploy convention — never <code>sudo git pull</code>, it changes file ownership.)</label></div>
+</div>
+
+<h2>Dry-run sanity check (no SPI write)</h2>
+<p>Before driving the panel, confirm state-read + render work standalone.</p>
+<div class="step">
+  <input type="checkbox" id="dr1">
+  <div class="step-body"><label for="dr1">Render once to PNG, no SPI.<pre><code>cd /usr/lib/cgi-bin/remote-switch
+DISPLAY_DRY_RUN=1 python3 display_loop.py --once
+ls -la /tmp/display-current.png</code></pre>Output should print <code>wrote /tmp/display-current.png</code> and the file should be ~5–10 KB.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="dr2">
+  <div class="step-body"><label for="dr2">scp the PNG back to your laptop and eyeball it.<pre><code>scp pi.vpn:/tmp/display-current.png .
+open display-current.png</code></pre>Should show: heater state, schedule (if any), FlashAir status, HVAC + hangar temp footer.</label></div>
+</div>
+
+<h2>First light — drive the panel</h2>
+<div class="step">
+  <input type="checkbox" id="fl1">
+  <div class="step-body"><label for="fl1">Render one frame to the actual display.<pre><code>cd /usr/lib/cgi-bin/remote-switch
+sudo python3 display_loop.py --once</code></pre>The display should light up and show the same frame the dry-run PNG produced.</label></div>
+</div>
+<div class="note">
+  <strong>If the display stays blank:</strong> check power continuity (multimeter across VCC/GND should read 3.3V), check that <code>raspi-gpio get 8 24 25</code> shows OUTPUT on those pins after running the script, check the journal for SPI errors with <code>dmesg | tail -20</code>.
+</div>
+<div class="note">
+  <strong>If text is sideways or mirrored:</strong> the <code>rotate=</code> argument in <code>display_loop.py</code> needs adjusting. Try <code>rotate=0</code>, <code>2</code>, or <code>3</code> until orientation matches the mockup.
+</div>
+<div class="note">
+  <strong>If colors are swapped (red↔blue):</strong> the panel is using BGR ordering instead of RGB. <code>luma.lcd</code> can be told via <code>bgr=True</code> on the <code>ili9341()</code> constructor — add that and re-test.
+</div>
+
+<h2>Enable the service</h2>
+<div class="step">
+  <input type="checkbox" id="sv1">
+  <div class="step-body"><label for="sv1">Install the systemd unit.<pre><code>sudo cp /usr/lib/cgi-bin/remote-switch/display.service /etc/systemd/system/
+sudo systemctl daemon-reload</code></pre></label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="sv2">
+  <div class="step-body"><label for="sv2">Start it and watch for clean startup.<pre><code>sudo systemctl start display
+sudo systemctl status display</code></pre>Status should show <code>active (running)</code> with no errors.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="sv3">
+  <div class="step-body"><label for="sv3">Enable on boot.<pre><code>sudo systemctl enable display</code></pre></label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="sv4">
+  <div class="step-body"><label for="sv4">Tail the journal for 30s — confirm no errors, no restarts.<pre><code>sudo journalctl -fu display</code></pre>Should be mostly silent — errors print to stderr only on transient hiccups.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="sv5">
+  <div class="step-body"><label for="sv5">Display refreshes every 5 seconds — schedule countdown ticks down, "updated Xs ago" stays low single digits.</label></div>
+</div>
+
+<h2>Configure the FlashAir SSID pattern (optional)</h2>
+<p>The renderer colors a matching SSID as amber ("active") and others as grey ("steady state"). Default pattern is <code>flashair</code>. Override in <code>.env</code>:</p>
+<pre><code>echo 'FLASHAIR_SSID_PATTERN=flashair' | sudo tee -a /usr/lib/cgi-bin/remote-switch/.env</code></pre>
+<div class="step">
+  <input type="checkbox" id="cfg1">
+  <div class="step-body"><label for="cfg1">Confirmed the FlashAir card's SSID broadcasts a substring matching the pattern (default <code>flashair</code> works for stock FlashAir cards).</label></div>
+</div>
+
+<h2>Final checks</h2>
+<div class="step">
+  <input type="checkbox" id="f1">
+  <div class="step-body"><label for="f1">Reboot the Pi — <code>sudo reboot</code> — and confirm the display comes up cleanly within ~30s of boot.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="f2">
+  <div class="step-body"><label for="f2">Toggle the heater from the web UI — display reflects the change within 5 seconds.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="f3">
+  <div class="step-body"><label for="f3">Add a heater schedule from the web UI — "Schedule" section on the display shows the next event.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="f4">
+  <div class="step-body"><label for="f4">FlashAir status surfaces once flashair-sync's status writer is deployed (depends on phase 1 PRs being merged).</label></div>
+</div>
+
+<h2>Troubleshooting cheat-sheet</h2>
+<table>
+  <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Display blank, service running</td>
+      <td>SPI not loaded, or wiring</td>
+      <td><code>ls /dev/spidev*</code> + check pin map</td>
+    </tr>
+    <tr>
+      <td>Service crash-looping</td>
+      <td>luma.lcd missing, or SPI permission</td>
+      <td><code>journalctl -u display -n 50</code></td>
+    </tr>
+    <tr>
+      <td>Display dim / flickering</td>
+      <td>Power supply marginal, long jumpers</td>
+      <td>Shorter jumpers, beefier PSU</td>
+    </tr>
+    <tr>
+      <td>Text shifted / cropped</td>
+      <td>Wrong rotation value</td>
+      <td>Try <code>rotate=0/1/2/3</code> in display_loop.py</td>
+    </tr>
+    <tr>
+      <td>Red ↔ blue swap</td>
+      <td>Panel is BGR, code expects RGB</td>
+      <td>Add <code>bgr=True</code> to <code>ili9341()</code></td>
+    </tr>
+    <tr>
+      <td>"updated Xm ago" stuck</td>
+      <td>flashair-sync stopped writing the cache</td>
+      <td><code>systemctl status flashair-sync</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Files in this repo</h2>
+<ul>
+  <li><code>display.py</code> — pure renderer; <code>render(state) → PIL.Image</code></li>
+  <li><code>display_state.py</code> — assembles state from /run/ + DB + GPIO + HVAC cache</li>
+  <li><code>display_loop.py</code> — systemd entry point, 5s loop, dry-run support</li>
+  <li><code>display.service</code> — systemd unit, <code>User=root</code> (needs SPI + GPIO access)</li>
+  <li><code>docs/display-install.html</code> — this file</li>
+</ul>
+
+<div class="reset">
+  <button id="reset-btn">Reset progress</button>
+</div>
+
+<script>
+(function() {
+  const KEY = 'hangar-display-install-progress';
+  const boxes = document.querySelectorAll('input[type=checkbox]');
+  const text = document.getElementById('progress-text');
+  const fill = document.getElementById('progress-fill');
+  const reset = document.getElementById('reset-btn');
+
+  // Restore
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY) || '{}');
+    boxes.forEach(b => {
+      if (saved[b.id]) {
+        b.checked = true;
+        b.closest('.step').classList.add('done');
+      }
+    });
+  } catch (e) {}
+
+  function update() {
+    const state = {};
+    let done = 0;
+    boxes.forEach(b => {
+      state[b.id] = b.checked;
+      if (b.checked) done++;
+      b.closest('.step').classList.toggle('done', b.checked);
+    });
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    text.textContent = `${done} of ${boxes.length} steps done`;
+    fill.style.width = `${(done / boxes.length) * 100}%`;
+  }
+
+  boxes.forEach(b => b.addEventListener('change', update));
+  reset.addEventListener('click', () => {
+    if (confirm('Reset all checkboxes?')) {
+      try { localStorage.removeItem(KEY); } catch (e) {}
+      boxes.forEach(b => { b.checked = false; });
+      update();
+    }
+  });
+  update();
+})();
+</script>
+
+</body>
+</html>

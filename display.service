@@ -1,0 +1,14 @@
+[Unit]
+Description=Hangar dashboard — drives the 3.2" SPI display
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/usr/lib/cgi-bin/remote-switch
+ExecStart=/usr/bin/python3 /usr/lib/cgi-bin/remote-switch/display_loop.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

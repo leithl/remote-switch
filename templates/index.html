@@ -177,7 +177,7 @@ function schedHvacModeToggle() {
 <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
   <h5 class="mb-0">{{ chart_title }}</h5>
   <span class="small text-muted">
-    <strong>Hangar:</strong> {{ temp_display }}{% if ambient_display %} &nbsp;&middot;&nbsp; <strong>Outdoor:</strong> {{ ambient_display }}{% endif %}
+    <strong>Hangar:</strong> {{ temp_display }}{% if ambient_display %} &nbsp;&middot;&nbsp; <strong>Outdoor:</strong> {{ ambient_display }}{% endif %}{% if flashair_display %} &nbsp;&middot;&nbsp; <strong>FlashAir:</strong> {{ flashair_display }}{% endif %}
   </span>
 </div>
 <div class="card-body">

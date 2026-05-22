@@ -139,27 +139,31 @@ def _flashair(now):
         return {"epoch": epoch, "stale": True}
 
     out = {
-        "epoch":              epoch,
-        "last_sync_epoch":    data.get("last_sync_epoch"),
-        "last_sync_files_n":  int(data.get("last_sync_files_n", 0)),
-        "current_file":       data.get("current_file"),
-        "stale":              False,
+        "epoch":                  epoch,
+        "last_sync_epoch":        data.get("last_sync_epoch"),
+        "last_sync_files_n":      int(data.get("last_sync_files_n", 0)),
+        "last_shot_sync_epoch":   data.get("last_shot_sync_epoch"),
+        "last_shot_sync_files_n": int(data.get("last_shot_sync_files_n", 0)),
+        "current_file":           data.get("current_file"),
+        "stale":                  False,
     }
 
     if "stage" in data:
-        # v1 contract — full multi-stage info
-        out["stage"]         = data["stage"]
-        out["current_ssid"]  = data.get("current_ssid")   # may be None → "no wifi"
-        out["files_done"]    = int(data.get("files_done", 0))
-        out["files_total"]   = int(data.get("files_total", 0))
+        # v1 contract — full multi-stage info, including shot pipeline
+        out["stage"]            = data["stage"]
+        out["current_ssid"]     = data.get("current_ssid")   # None → "no wifi"
+        out["files_done"]       = int(data.get("files_done", 0))
+        out["files_total"]      = int(data.get("files_total", 0))
+        out["session_csv_n"]    = int(data.get("session_csv_n", 0))
+        out["session_shots_n"]  = int(data.get("session_shots_n", 0))
     else:
         # v0 contract — collapse the boolean into the stage enum.
         # current_ssid is intentionally omitted: v0 doesn't carry it, and we
         # want the renderer to suppress the SSID indicator (not show "no wifi"
         # red, which would imply wifi is actually down).
-        out["stage"]         = "downloading" if data.get("transferring") else "idle"
-        out["files_done"]    = 0
-        out["files_total"]   = 0
+        out["stage"]            = "downloading" if data.get("transferring") else "idle"
+        out["files_done"]       = 0
+        out["files_total"]      = 0
 
     return out
 

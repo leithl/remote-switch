@@ -405,8 +405,39 @@ sudo systemctl status display</code></pre>Status should show <code>active (runni
       <td>flashair-sync stopped writing the cache</td>
       <td><code>systemctl status flashair-sync</code></td>
     </tr>
+    <tr>
+      <td>FlashAir headline reads "downloading from card 0 of 0"</td>
+      <td>Daemon is on the older v0 status contract (no <code>stage</code> field)</td>
+      <td>Update flashair-sync to a version that writes <code>stage</code> / <code>session_csv_n</code> / <code>session_shots_n</code></td>
+    </tr>
+    <tr>
+      <td>SSID line shows "no wifi" in red</td>
+      <td>Daemon reports <code>current_ssid: null</code> — wifi adapter actually down</td>
+      <td>Check <code>wpa_cli status</code> on the Pi; check the antenna</td>
+    </tr>
+    <tr>
+      <td>Shot stages never show</td>
+      <td>Screenshots aren't configured in flashair-sync's <code>.env</code></td>
+      <td>Set <code>FLASHAIR_SHOT_DIR</code> / <code>LOCAL_SHOT_DIR</code> / <code>REMOTE_SHOT_DIR</code> (all three or none)</td>
+    </tr>
   </tbody>
 </table>
+
+<h2>What the FlashAir line means</h2>
+<p>The daemon writes one of seven stages to <code>/run/heater-flashair.json</code>. Each renders distinctly so you can see exactly which phase the Pi is in:</p>
+<table>
+  <thead><tr><th>Stage</th><th>What's happening</th><th>SSID shown</th></tr></thead>
+  <tbody>
+    <tr><td><code>scanning card</code></td><td>Connected to the FlashAir, enumerating files</td><td>FlashAir SSID (amber)</td></tr>
+    <tr><td><code>downloading N of M logs</code></td><td>CSV files coming off the card</td><td>FlashAir SSID (amber)</td></tr>
+    <tr><td><code>downloading N of M shots</code></td><td>BMP screenshots coming off the card</td><td>FlashAir SSID (amber)</td></tr>
+    <tr><td><code>uploading N of M logs</code></td><td>CSVs being SCPed to the remote</td><td>Hangar SSID (grey)</td></tr>
+    <tr><td><code>uploading N of M shots</code></td><td>BMPs being SCPed to the remote</td><td>Hangar SSID (grey)</td></tr>
+    <tr><td><code>done — N logs + M shots, X ago</code></td><td>Just finished, &lt; 10 min (green)</td><td>Hangar SSID (grey)</td></tr>
+    <tr><td><code>idle — last sync N logs + M shots, X ago</code></td><td>Steady state, &gt; 10 min since last work (dim)</td><td>Hangar SSID (grey)</td></tr>
+  </tbody>
+</table>
+<p>During the two download stages the sub-line shows "<code>N shots queued</code>" or "<code>N logs done</code>" — that's the other pipeline's status, so you know at a glance whether *all* the work is finished or only the CSV half.</p>
 
 <h2>Files in this repo</h2>
 <ul>

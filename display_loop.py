@@ -4,18 +4,19 @@ display_loop.py — Drives the hangar Pi's 3.2" ILI9341 SPI dashboard.
 
 Reads display_state.get_state() every UPDATE_INTERVAL_SECS, renders it via
 display.render(), and pushes the result to the ILI9341 panel via luma.lcd
-on SPI0.
+on SPI0. Polls the XPT2046 touch chip every TOUCH_POLL_INTERVAL_SECS; a tap
+within display.HEATER_BUTTON_RECT toggles GPIO 17 (the engine-block heater).
 
-Runs under systemd (see display.service). Touch handling is intentionally
-deferred to a follow-up — this loop is render-only, so the rest of the path
-can land + be verified on hardware before XPT2046 calibration adds a moving
-part. The button geometry already lives in display.HEATER_BUTTON_RECT for
-the touch handler to consume when it lands.
+Runs under systemd (see display.service).
 
 CLI flags:
     --once          render one frame, push, exit. Useful for spot checks.
     --dry-run       skip SPI init; write the render to /tmp/display-current.png
-                    each iteration. Sets if DISPLAY_DRY_RUN=1 is in env too.
+                    each iteration. Set if DISPLAY_DRY_RUN=1 is in env too.
+    --calibrate     run the 4-corner touch calibration walkthrough, print
+                    suggested TOUCH_* values for .env, then exit.
+    --no-touch      skip the touch panel entirely (in case the chip isn't
+                    wired but you want to drive the display).
 """
 
 import os
@@ -32,8 +33,10 @@ import display          # noqa: E402
 import display_state    # noqa: E402
 
 
-UPDATE_INTERVAL_SECS = 5
-DRY_RUN_OUT          = Path("/tmp/display-current.png")
+UPDATE_INTERVAL_SECS     = 5
+TOUCH_POLL_INTERVAL_SECS = 0.05    # 20 Hz touch polling between display refreshes
+TOUCH_DEBOUNCE_SECS      = 1.0     # ignore taps within this window of the last one
+DRY_RUN_OUT              = Path("/tmp/display-current.png")
 
 # ILI9341 control pins. Match display.py's pin map and the wiring docs.
 GPIO_DC  = 24
@@ -43,6 +46,7 @@ SPI_DEV  = 0   # SPI0 CE0 — the display's chip select (BCM 8)
 
 
 _stop = False
+_last_tap_epoch = 0.0
 
 
 def _on_signal(_signum, _frame):
@@ -54,6 +58,10 @@ def _is_dry_run():
     return "--dry-run" in sys.argv or os.environ.get("DISPLAY_DRY_RUN") == "1"
 
 
+def _touch_enabled():
+    return "--no-touch" not in sys.argv and not _is_dry_run()
+
+
 def _open_device():
     """Open the ILI9341 over SPI. Lazy import so the module works without luma installed."""
     from luma.core.interface.serial import spi
@@ -63,6 +71,16 @@ def _open_device():
     # rotate=1 → landscape orientation (320 wide × 240 tall). The renderer
     # produces images in that orientation; rotate=0 would render sideways.
     return ili9341(serial, rotate=1, width=display.WIDTH, height=display.HEIGHT)
+
+
+def _open_touch():
+    """Open the XPT2046 over SPI0 CE1. Returns None on import / open failure."""
+    try:
+        import touch  # noqa: E402 — local module
+        return touch.TouchReader()
+    except Exception as e:
+        sys.stderr.write(f"display: touch init failed: {e} (continuing without touch)\n")
+        return None
 
 
 def _flashair_ssid_pattern():
@@ -90,11 +108,77 @@ def _push(device, ssid_pattern):
         sys.stderr.write(f"display: push failed: {e}\n")
 
 
+def _toggle_heater():
+    """Flip GPIO 17 to its inverse. Logs the action."""
+    try:
+        current = config.read_gpio()
+        new = "0" if current == "1" else "1"
+        config.write_gpio(new)
+        sys.stderr.write(f"display: heater toggle {current} -> {new}\n")
+    except (OSError, PermissionError) as e:
+        sys.stderr.write(f"display: heater toggle failed: {e}\n")
+
+
+def _poll_touch(touch_reader):
+    """One tick of touch polling. Triggers heater toggle if a debounced
+    tap lands inside HEATER_BUTTON_RECT. Cheap to call at 20 Hz — a no-touch
+    read is one SPI transaction for the Z value."""
+    global _last_tap_epoch
+    try:
+        raw = touch_reader.read_raw_with_pressure()
+    except Exception as e:
+        sys.stderr.write(f"display: touch read failed: {e}\n")
+        return
+    if raw is None:
+        return
+    now = time.time()
+    if now - _last_tap_epoch < TOUCH_DEBOUNCE_SECS:
+        return  # still in cooldown from previous tap
+
+    # Re-read averaged to filter the wild first sample of a press
+    avg = touch_reader.read_averaged(n=4)
+    if avg is None:
+        return
+    x_px, y_px = touch_reader.to_pixels(*avg)
+    import touch  # local module; cheap re-import is cached
+    if touch.point_in_rect(x_px, y_px, display.HEATER_BUTTON_RECT):
+        _last_tap_epoch = now
+        _toggle_heater()
+
+
+def _sleep_with_touch(secs, touch_reader):
+    """Sleep for `secs` total, polling touch every TOUCH_POLL_INTERVAL_SECS
+    and breaking early on SIGTERM. Replaces the previous plain time.sleep
+    chunks in the main loop."""
+    chunks = int(secs / TOUCH_POLL_INTERVAL_SECS)
+    for _ in range(chunks):
+        if _stop:
+            return
+        if touch_reader is not None:
+            _poll_touch(touch_reader)
+        time.sleep(TOUCH_POLL_INTERVAL_SECS)
+
+
+def _run_calibration():
+    """Delegate to touch.run_calibration()."""
+    try:
+        import touch
+    except ImportError as e:
+        sys.stderr.write(f"calibration: touch module unavailable: {e}\n")
+        sys.exit(1)
+    touch.run_calibration()
+
+
 def main():
     signal.signal(signal.SIGTERM, _on_signal)
     signal.signal(signal.SIGINT, _on_signal)
 
+    if "--calibrate" in sys.argv:
+        _run_calibration()
+        return
+
     device = None if _is_dry_run() else _open_device()
+    touch_reader = _open_touch() if _touch_enabled() else None
     ssid_pattern = _flashair_ssid_pattern()
 
     if "--once" in sys.argv:
@@ -103,13 +187,13 @@ def main():
             print(f"wrote {DRY_RUN_OUT}")
         return
 
-    while not _stop:
-        _push(device, ssid_pattern)
-        # Sleep in 100ms chunks so SIGTERM (systemctl stop) is responsive.
-        for _ in range(UPDATE_INTERVAL_SECS * 10):
-            if _stop:
-                break
-            time.sleep(0.1)
+    try:
+        while not _stop:
+            _push(device, ssid_pattern)
+            _sleep_with_touch(UPDATE_INTERVAL_SECS, touch_reader)
+    finally:
+        if touch_reader is not None:
+            touch_reader.close()
 
 
 if __name__ == "__main__":

@@ -225,7 +225,7 @@ sudo systemctl poweroff</code></pre>Wait for the green ACT LED to stop blinking,
 </div>
 
 <h2>Wiring</h2>
-<p>Pi Zero W 40-pin header. <strong>All 8 connections to the display use 3.3V logic and 3V3 power</strong> — do <em>not</em> wire VCC to the Pi's 5V rail even though the display says it accepts 5V.</p>
+<p>Pi Zero W 40-pin header. <strong>All connections use 3.3V logic and 3V3 power</strong> — do <em>not</em> wire VCC to the Pi's 5V rail even though the display says it accepts 5V.</p>
 
 <table class="pinmap">
   <thead>
@@ -237,13 +237,15 @@ sudo systemctl poweroff</code></pre>Wait for the green ACT LED to stop blinking,
     <tr><td>CS</td><td>BCM 8</td><td>24</td><td>SPI0 CE0 — display chip select.</td></tr>
     <tr><td>RESET</td><td>BCM 25</td><td>22</td><td>Display reset, driven by luma.lcd at init.</td></tr>
     <tr><td>DC</td><td>BCM 24</td><td>18</td><td>Data / command select.</td></tr>
-    <tr><td>SDI / MOSI</td><td>BCM 10</td><td>19</td><td>SPI MOSI.</td></tr>
-    <tr><td>SCK</td><td>BCM 11</td><td>23</td><td>SPI clock.</td></tr>
+    <tr><td>SDI / MOSI</td><td>BCM 10</td><td>19</td><td>SPI MOSI. Shared with the touch chip.</td></tr>
+    <tr><td>SCK</td><td>BCM 11</td><td>23</td><td>SPI clock. Shared with the touch chip.</td></tr>
+    <tr><td>SDO / MISO</td><td>BCM 9</td><td>21</td><td>SPI MISO. Needed by the touch chip (display alone wouldn't need it).</td></tr>
+    <tr><td>T_CS</td><td>BCM 7</td><td>26</td><td>SPI0 CE1 — touch chip select. Distinct from CS / BCM 8.</td></tr>
     <tr class="power"><td>LED</td><td>3V3</td><td>17</td><td>Backlight, always-on. PWM dimming via GPIO is a later option.</td></tr>
   </tbody>
 </table>
 
-<p>Touch pins on the display (<code>T_CS</code>, <code>T_CLK</code>, <code>T_DIN</code>, <code>T_DO</code>, <code>T_IRQ</code>) and <code>SDO / MISO</code> are <strong>left unconnected</strong> for now — touch handling lands in a follow-up after first-light.</p>
+<p>The other touch pins on the display (<code>T_CLK</code>, <code>T_DIN</code>, <code>T_DO</code>, <code>T_IRQ</code>) are <strong>left unconnected</strong>: <code>T_CLK</code>/<code>T_DIN</code>/<code>T_DO</code> are internally shared with the display's SPI bus on this PCB, and <code>T_IRQ</code> is optional (the driver polls instead).</p>
 
 <div class="note tip">
   <strong>Tip:</strong> use consistent jumper colors so you can trace at a glance — red = 3V3, black = GND, anything else for signals. Verify each jumper end-to-end with a continuity test (or just gently tug) before powering on.
@@ -353,6 +355,33 @@ sudo systemctl status display</code></pre>Status should show <code>active (runni
   <div class="step-body"><label for="cfg1">Confirmed the FlashAir card's SSID broadcasts a substring matching the pattern (default <code>flashair</code> works for stock FlashAir cards).</label></div>
 </div>
 
+<h2>Touch calibration</h2>
+<p>The XPT2046 returns raw 12-bit values that need to be mapped to screen pixels. Defaults in <code>touch.py</code> work for "most" 3.2" MSP3218 panels, but every panel drifts a bit — tap-the-button accuracy improves a lot after a 30-second calibration.</p>
+<div class="step">
+  <input type="checkbox" id="cal1">
+  <div class="step-body"><label for="cal1">Stop the display service so it doesn't fight you for the SPI bus:<pre><code>sudo systemctl stop display</code></pre></label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="cal2">
+  <div class="step-body"><label for="cal2">Run the calibration walkthrough:<pre><code>cd /usr/lib/cgi-bin/remote-switch
+sudo python3 display_loop.py --calibrate</code></pre>You'll be prompted to tap each of the 4 corners in order (top-left → top-right → bottom-left → bottom-right). Hold each tap for ~1s, lift between corners. The script averages ~16+ samples per corner and prints suggested <code>TOUCH_*</code> values.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="cal3">
+  <div class="step-body"><label for="cal3">Paste the printed <code>TOUCH_*</code> lines into <code>.env</code> (replace any existing TOUCH_ lines):<pre><code>sudo nano /usr/lib/cgi-bin/remote-switch/.env</code></pre>The 8 keys are <code>TOUCH_X_MIN</code>, <code>TOUCH_X_MAX</code>, <code>TOUCH_Y_MIN</code>, <code>TOUCH_Y_MAX</code>, <code>TOUCH_AXES_SWAP</code>, <code>TOUCH_X_INVERT</code>, <code>TOUCH_Y_INVERT</code>, <code>TOUCH_PRESSURE_THRESHOLD</code>.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="cal4">
+  <div class="step-body"><label for="cal4">Restart the service:<pre><code>sudo systemctl start display</code></pre></label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="cal5">
+  <div class="step-body"><label for="cal5">Tap the heater button — heater state should flip within 1s, and the display reflects the new state on the next refresh tick (≤5s).<pre><code>sudo journalctl -fu display</code></pre>You should see <code>display: heater toggle 0 -&gt; 1</code> (or vice versa) on each tap.</label></div>
+</div>
+<div class="note tip">
+  <strong>Tap inside the button area</strong> (the big red/grey rectangle, roughly 140×70 px at the top-left). Tapping anywhere else does nothing — by design, no accidental toggles from a brush against the edge of the screen.
+</div>
+
 <h2>Final checks</h2>
 <div class="step">
   <input type="checkbox" id="f1">
@@ -364,11 +393,15 @@ sudo systemctl status display</code></pre>Status should show <code>active (runni
 </div>
 <div class="step">
   <input type="checkbox" id="f3">
-  <div class="step-body"><label for="f3">Add a heater schedule from the web UI — "Schedule" section on the display shows the next event.</label></div>
+  <div class="step-body"><label for="f3">Toggle the heater from the <em>display</em> — tap the button on the panel, confirm GPIO + web UI both reflect the change.</label></div>
 </div>
 <div class="step">
   <input type="checkbox" id="f4">
-  <div class="step-body"><label for="f4">FlashAir status surfaces once flashair-sync's status writer is deployed (depends on phase 1 PRs being merged).</label></div>
+  <div class="step-body"><label for="f4">Add a heater schedule from the web UI — "Schedule" section on the display shows the next event.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="f5">
+  <div class="step-body"><label for="f5">FlashAir status surfaces — should show "idle — N logs + M shots, X ago" once flashair-sync has done a cycle since deploy.</label></div>
 </div>
 
 <h2>Troubleshooting cheat-sheet</h2>
@@ -420,6 +453,26 @@ sudo systemctl status display</code></pre>Status should show <code>active (runni
       <td>Screenshots aren't configured in flashair-sync's <code>.env</code></td>
       <td>Set <code>FLASHAIR_SHOT_DIR</code> / <code>LOCAL_SHOT_DIR</code> / <code>REMOTE_SHOT_DIR</code> (all three or none)</td>
     </tr>
+    <tr>
+      <td>Tapping the heater button does nothing</td>
+      <td>Touch chip not wired, or T_CS / MISO not connected</td>
+      <td>Verify <code>MISO</code> (BCM 9 / pin 21) and <code>T_CS</code> (BCM 7 / pin 26). Check <code>journalctl -u display</code> for "touch init failed".</td>
+    </tr>
+    <tr>
+      <td>Tap registers but in the wrong location</td>
+      <td>Calibration needed or axes swap is wrong</td>
+      <td>Re-run <code>sudo python3 display_loop.py --calibrate</code>. If the wrong corner registers, flip <code>TOUCH_AXES_SWAP</code>, <code>TOUCH_X_INVERT</code>, or <code>TOUCH_Y_INVERT</code> in <code>.env</code>.</td>
+    </tr>
+    <tr>
+      <td>Heater toggles on its own (ghost taps)</td>
+      <td>Pressure threshold too low — noise triggering taps</td>
+      <td>Raise <code>TOUCH_PRESSURE_THRESHOLD</code> in <code>.env</code> (default 150; try 250).</td>
+    </tr>
+    <tr>
+      <td>"touch init failed: No such file or directory"</td>
+      <td>SPI not enabled, or <code>/dev/spidev0.1</code> missing</td>
+      <td>Confirm <code>dtparam=spi=on</code> in <code>/boot/firmware/config.txt</code>; <code>ls /dev/spidev*</code> should show both <code>spidev0.0</code> and <code>spidev0.1</code>.</td>
+    </tr>
   </tbody>
 </table>
 
@@ -443,7 +496,8 @@ sudo systemctl status display</code></pre>Status should show <code>active (runni
 <ul>
   <li><code>display.py</code> — pure renderer; <code>render(state) → PIL.Image</code></li>
   <li><code>display_state.py</code> — assembles state from /run/ + DB + GPIO + HVAC cache</li>
-  <li><code>display_loop.py</code> — systemd entry point, 5s loop, dry-run support</li>
+  <li><code>display_loop.py</code> — systemd entry point, 5s loop, 20 Hz touch polling, dry-run + calibrate modes</li>
+  <li><code>touch.py</code> — XPT2046 SPI driver, calibration application, hit-test helper</li>
   <li><code>display.service</code> — systemd unit, <code>User=root</code> (needs SPI + GPIO access)</li>
   <li><code>docs/display-install.html</code> — this file</li>
 </ul>

@@ -313,10 +313,12 @@ def render(state, flashair_ssid_pattern=None):
     d.rectangle([(x1, y1), (x2, y2)], fill=btn_bg,
                 outline=COLOR["heater_border"], width=2)
     text = "ON" if h_on else "OFF"
-    bbox = d.textbbox((0, 0), text, font=f_btn)
-    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    d.text((x1 + (x2 - x1 - tw) / 2, y1 + (y2 - y1 - th) / 2),
-           text, fill=btn_fg, font=f_btn)
+    # anchor="mm" puts the text's actual ink center at the given x,y. The
+    # previous manual textbbox math ignored bbox[0]/bbox[1] (the offset from
+    # the text origin to the inked area), so the glyph drifted off-center
+    # by a few px vertically. PIL ≥ 8.0 supports anchor for TTF fonts.
+    d.text(((x1 + x2) / 2, (y1 + y2) / 2),
+           text, fill=btn_fg, font=f_btn, anchor="mm")
 
     next_evt = heater.get("next_event")
     d.text((165, 22), "Schedule", fill=COLOR["dim"], font=f_label)

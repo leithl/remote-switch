@@ -1,8 +1,8 @@
 """
 flashair.py — Read the flashair-sync daemon's status file.
 
-flashair-sync runs on this same Pi as a separate systemd daemon (User=pi)
-and writes `/run/heater-flashair.json` on every sync state change. This
+flashair-sync runs on this same Pi as a separate systemd daemon and writes
+`/run/flashair-shots/heater-flashair.json` on every sync state change. This
 module reads that file at page-render time and exposes a one-line display
 string to switch.py — no HTTP, no localhost loopback, no cron poll.
 
@@ -10,18 +10,19 @@ File contract (written by flashair-sync, see its README "Status file"):
 
     {"epoch": <int>, "last_sync_epoch": <int|None>,
      "last_sync_files_n": <int>, "transferring": <bool>,
-     "current_file": <str|None>}
+     "current_file": <str|None>, ...}
 
-Opt-in: surface only when `/run/heater-flashair.json` exists. Installs
-that don't run flashair-sync on this Pi see nothing in the UI; no env
-config required.
+Opt-in: surface only when the status file exists. Installs that don't run
+flashair-sync on this Pi see nothing in the UI; no env config required.
 """
 
 import json
 from datetime import datetime
 from pathlib import Path
 
-FLASHAIR_STATUS_FILE = Path("/run/heater-flashair.json")
+# The daemon runs as a non-root user (User=leith) and can't write to /run/
+# itself, so the status file lives inside the daemon's RuntimeDirectory.
+FLASHAIR_STATUS_FILE = Path("/run/flashair-shots/heater-flashair.json")
 # Treat the file as "unreachable" when its epoch is older than this. The
 # upstream daemon writes at every transferring on/off transition and at
 # every sync record, so 120s gives a generous grace window before we

@@ -201,8 +201,10 @@ def flashair_lines(fa):
         if age_since_sync is not None and age_since_sync < DONE_WINDOW_SECS:
             return (f"done — {done_text}, {fmt_age(age_since_sync)} ago",
                     COLOR["flash_done"], None, None, False)
+        # Mirror the "done —" structure; "last sync" pushed the line past
+        # 320px when both logs and shots had counts in the breakdown.
         ago = fmt_age(age_since_sync) if age_since_sync is not None else "—"
-        return (f"idle — last sync {done_text}, {ago} ago",
+        return (f"idle — {done_text}, {ago} ago",
                 COLOR["flash_idle"], None, None, False)
     if stage == "scanning":
         return ("scanning card", COLOR["flash_active"], None, None, False)

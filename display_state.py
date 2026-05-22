@@ -151,11 +151,16 @@ def _flashair(now):
     if "stage" in data:
         # v1 contract — full multi-stage info, including shot pipeline
         out["stage"]            = data["stage"]
-        out["current_ssid"]     = data.get("current_ssid")   # None → "no wifi"
         out["files_done"]       = int(data.get("files_done", 0))
         out["files_total"]      = int(data.get("files_total", 0))
         out["session_csv_n"]    = int(data.get("session_csv_n", 0))
         out["session_shots_n"]  = int(data.get("session_shots_n", 0))
+        # Only forward current_ssid when the source actually carries it:
+        # an explicit `null` from the producer means wifi-down (renderer
+        # paints "no wifi" red). A missing key means "producer doesn't
+        # report SSID" — suppress the indicator rather than show false alarm.
+        if "current_ssid" in data:
+            out["current_ssid"] = data["current_ssid"]
     else:
         # v0 contract — collapse the boolean into the stage enum.
         # current_ssid is intentionally omitted: v0 doesn't carry it, and we

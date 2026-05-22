@@ -13,11 +13,20 @@ State dict shape:
       "heater": {"on": bool, "next_event": {action, epoch, label} | None},
       "flashair": {
           "epoch": int,
-          "stage": "idle"|"scanning"|"downloading"|"uploading"|"error",
-          "current_ssid": str | None,
-          "files_done": int, "files_total": int,
+          "stage": "idle" | "scanning"
+                 | "downloading_logs" | "downloading_shots"
+                 | "uploading_logs"   | "uploading_shots"
+                 | "error",
+          "current_ssid": str | None,        # None → "no wifi" red indicator
+          "files_done": int,                 # progress within current stage
+          "files_total": int,
+          "session_csv_n": int,              # logs being processed this cycle
+          "session_shots_n": int,            # shots being processed this cycle
           "current_file": str | None,
-          "last_sync_epoch": int | None, "last_sync_files_n": int,
+          "last_sync_epoch": int | None,
+          "last_sync_files_n": int,
+          "last_shot_sync_epoch": int | None,
+          "last_shot_sync_files_n": int,
           "stale": bool,
       } | None,
       "hvac": {"mode": str, "target_f": float|None, "power_w": int} | None,
@@ -66,6 +75,7 @@ COLOR = {
     "flash_idle":      (140, 140, 145),
     "flash_error":     (240, 95, 80),
     "flash_stale":     (240, 95, 80),
+    "flash_context":   (170, 175, 185),  # "N shots queued" / "N logs done"
     "ssid_hangar":     (140, 145, 155),
     "ssid_flashair":   (255, 195, 90),
     "ssid_none":       (240, 95, 80),
@@ -149,14 +159,22 @@ def fmt_until(secs):
 
 def flashair_lines(fa):
     """
-    Returns (headline, color, sub, has_progress_bar) for the FlashAir section.
-    `fa` may be None (FlashAir not configured) — caller skips rendering in that case.
+    Returns (headline, color, sub, context, has_progress_bar) for the FlashAir section.
+
+    - sub: filename of the in-flight transfer, or the "go look at the problem"
+      message for error/stale states. Rendered in dim mono just under the headline.
+    - context: the queued-or-done line ("N shots queued" / "N logs done") that
+      surfaces the other pipeline's state during active stages. Rendered in
+      flash_context color below the filename. None when there's no useful
+      cross-pipeline signal.
+
+    `fa` may be None (FlashAir not configured) — caller skips rendering.
     """
     if fa is None:
-        return ("not configured", COLOR["flash_idle"], None, False)
+        return ("not configured", COLOR["flash_idle"], None, None, False)
 
     if fa.get("stale"):
-        return ("sync service down", COLOR["flash_stale"], "go look at the problem", False)
+        return ("sync service down", COLOR["flash_stale"], "go look at the problem", None, False)
 
     stage = fa.get("stage", "idle")
     fd = fa.get("files_done", 0)
@@ -166,28 +184,56 @@ def flashair_lines(fa):
     now = fa.get("epoch", 0)
     age_since_sync = (now - last) if last else None
     n = fa.get("last_sync_files_n", 0)
-    unit = "file" if n == 1 else "files"
+    shot_n = fa.get("last_shot_sync_files_n", 0)
+    session_csv_n = fa.get("session_csv_n", 0)
+    session_shots_n = fa.get("session_shots_n", 0)
 
     if stage == "idle":
-        if last is None:
-            return ("idle  (no sync yet)", COLOR["flash_idle"], None, False)
-        if age_since_sync < DONE_WINDOW_SECS:
-            return (f"done — {n} {unit}, {fmt_age(age_since_sync)} ago",
-                    COLOR["flash_done"], None, False)
-        return (f"idle — last sync {n} {unit}, {fmt_age(age_since_sync)} ago",
-                COLOR["flash_idle"], None, False)
+        if last is None and not shot_n:
+            return ("idle  (no sync yet)", COLOR["flash_idle"], None, None, False)
+        # Compose the breakdown — show shots only when they happened this cycle
+        log_unit = "log" if n == 1 else "logs"
+        if shot_n:
+            shot_unit = "shot" if shot_n == 1 else "shots"
+            done_text = f"{n} {log_unit} + {shot_n} {shot_unit}"
+        else:
+            done_text = f"{n} {log_unit}"
+        if age_since_sync is not None and age_since_sync < DONE_WINDOW_SECS:
+            return (f"done — {done_text}, {fmt_age(age_since_sync)} ago",
+                    COLOR["flash_done"], None, None, False)
+        ago = fmt_age(age_since_sync) if age_since_sync is not None else "—"
+        return (f"idle — last sync {done_text}, {ago} ago",
+                COLOR["flash_idle"], None, None, False)
     if stage == "scanning":
-        return ("scanning card", COLOR["flash_active"], None, False)
+        return ("scanning card", COLOR["flash_active"], None, None, False)
+    if stage == "downloading_logs":
+        ctx = f"{session_shots_n} shots queued" if session_shots_n else None
+        return (f"downloading  {fd} of {ft} logs",
+                COLOR["flash_active"], cf, ctx, True)
+    if stage == "downloading_shots":
+        ctx = f"{session_csv_n} logs done" if session_csv_n else None
+        return (f"downloading  {fd} of {ft} shots",
+                COLOR["flash_active"], cf, ctx, True)
+    if stage == "uploading_logs":
+        ctx = f"{session_shots_n} shots queued" if session_shots_n else None
+        return (f"uploading  {fd} of {ft} logs",
+                COLOR["flash_active"], cf, ctx, True)
+    if stage == "uploading_shots":
+        ctx = f"{session_csv_n} logs done" if session_csv_n else None
+        return (f"uploading  {fd} of {ft} shots",
+                COLOR["flash_active"], cf, ctx, True)
+    # Back-compat: pre-stage v0 contract inferred "downloading" from the
+    # transferring boolean (CSV-only). Render the same way the old display did.
     if stage == "downloading":
         return (f"downloading from card  {fd} of {ft}",
-                COLOR["flash_active"], cf, True)
+                COLOR["flash_active"], cf, None, True)
     if stage == "uploading":
         return (f"uploading to remote  {fd} of {ft}",
-                COLOR["flash_active"], cf, True)
+                COLOR["flash_active"], cf, None, True)
     if stage == "error":
-        return ("error", COLOR["flash_error"], "go look at the problem", False)
+        return ("error", COLOR["flash_error"], "go look at the problem", None, False)
     # Unknown stage value — render literally so it's visible during dev.
-    return (stage, COLOR["fg"], None, False)
+    return (stage, COLOR["fg"], None, None, False)
 
 
 def ssid_color(ssid, flashair_pattern=None):
@@ -247,6 +293,7 @@ def render(state, flashair_ssid_pattern=None):
     f_sched      = _font(_SANS_REG, 14)
     f_sched_sm   = _font(_SANS_REG, 11)
     f_flash_head = _font(_SANS_BOLD, 18)
+    f_flash_ctx  = _font(_SANS_REG, 12)
     f_mono_sm    = _font(_MONO, 11)
     f_footer     = _font(_SANS_REG, 13)
     f_tiny       = _font(_SANS_REG, 10)
@@ -303,19 +350,30 @@ def render(state, flashair_ssid_pattern=None):
         fw = bbox[2] - bbox[0]
         d.text((WIDTH - 10 - fw, 114), fresh_text, fill=fresh_color, font=f_tiny)
 
-        headline, hcolor, sub, has_bar = flashair_lines(fa)
+        headline, hcolor, sub, context, has_bar = flashair_lines(fa)
         d.text((10, 130), headline, fill=hcolor, font=f_flash_head)
+        # When context is present, shift the filename + bar up/down to fit
+        # the extra line. Otherwise keep the original two-row layout.
+        if context:
+            sub_y, context_y, bar_y = 152, 168, 184
+        else:
+            sub_y, context_y, bar_y = 158, None, 178
+
         if sub:
             max_chars = 38
             sub_display = sub if len(sub) <= max_chars else sub[: max_chars - 1] + "…"
-            d.text((10, 158), sub_display, fill=COLOR["dim"], font=f_mono_sm)
+            d.text((10, sub_y), sub_display, fill=COLOR["dim"], font=f_mono_sm)
+        if context:
+            d.text((10, context_y), context,
+                   fill=COLOR["flash_context"], font=f_flash_ctx)
 
         if has_bar:
             fd = fa.get("files_done", 0)
             ft = max(fa.get("files_total", 1), 1)
             frac = max(0.0, min(1.0, fd / ft))
-            d.rectangle([(10, 178), (310, 188)], outline=COLOR["rule"], width=1)
-            d.rectangle([(11, 179), (11 + int(298 * frac), 187)], fill=COLOR["flash_active"])
+            d.rectangle([(10, bar_y), (310, bar_y + 10)], outline=COLOR["rule"], width=1)
+            d.rectangle([(11, bar_y + 1), (11 + int(298 * frac), bar_y + 9)],
+                        fill=COLOR["flash_active"])
     else:
         d.text((10, 130), "not configured", fill=COLOR["flash_idle"], font=f_flash_head)
 
@@ -348,9 +406,12 @@ if __name__ == "__main__":
             "stage": stage,
             "current_ssid": "Hangar-WiFi",
             "files_done": 0, "files_total": 0,
+            "session_csv_n": 0, "session_shots_n": 0,
             "current_file": None,
             "last_sync_epoch": NOW - 3600,
             "last_sync_files_n": 12,
+            "last_shot_sync_epoch": None,
+            "last_shot_sync_files_n": 0,
             "stale": False,
         }
         out.update(kw)
@@ -363,21 +424,40 @@ if __name__ == "__main__":
         "hangar_f": 47.1,
     }
 
+    fname = "log_YYYYMMDD_HHMMSS_KXXX.csv"
+    shot = "shot_001.bmp"
     states = {
-        "idle_done":       {**BASE, "flashair": fa_state("idle", last_sync_epoch=NOW - 90)},
-        "downloading":     {**BASE, "flashair": fa_state("downloading",
-                                                        current_ssid="FlashAir-Card",
-                                                        files_done=3, files_total=7,
-                                                        current_file="log_20260521_134505_KLMO.csv")},
-        "uploading":       {**BASE, "flashair": fa_state("uploading",
-                                                        files_done=5, files_total=7,
-                                                        current_file="log_20260521_134505_KLMO.csv")},
-        "sync_down":       {**BASE, "flashair": fa_state("idle", stale=True, epoch=NOW - 600)},
-        "no_flashair":     {**BASE, "flashair": None},
-        "heater_on":       {**BASE, "flashair": fa_state("idle", last_sync_epoch=NOW - 60),
-                            "heater": {"on": True,
-                                       "next_event": {"action": "off", "epoch": NOW + 4320,
-                                                      "label": "OFF at 7:30 AM"}}},
+        "idle_done":           {**BASE, "flashair": fa_state(
+            "idle", last_sync_epoch=NOW - 90, last_sync_files_n=7,
+            last_shot_sync_epoch=NOW - 80, last_shot_sync_files_n=5)},
+        "downloading_logs":    {**BASE, "flashair": fa_state(
+            "downloading_logs", current_ssid="FlashAir-Card",
+            files_done=3, files_total=7,
+            session_csv_n=7, session_shots_n=5,
+            current_file=fname)},
+        "downloading_shots":   {**BASE, "flashair": fa_state(
+            "downloading_shots", current_ssid="FlashAir-Card",
+            files_done=2, files_total=5,
+            session_csv_n=7, session_shots_n=5,
+            current_file=shot)},
+        "uploading_logs":      {**BASE, "flashair": fa_state(
+            "uploading_logs",
+            files_done=4, files_total=7,
+            session_csv_n=7, session_shots_n=5,
+            current_file=fname)},
+        "uploading_shots":     {**BASE, "flashair": fa_state(
+            "uploading_shots",
+            files_done=3, files_total=5,
+            session_csv_n=7, session_shots_n=5,
+            current_file=shot)},
+        "sync_down":           {**BASE, "flashair": fa_state("idle", stale=True, epoch=NOW - 600)},
+        "no_flashair":         {**BASE, "flashair": None},
+        "heater_on":           {**BASE, "flashair": fa_state(
+            "idle", last_sync_epoch=NOW - 60, last_sync_files_n=7,
+            last_shot_sync_epoch=NOW - 50, last_shot_sync_files_n=5),
+            "heater": {"on": True,
+                       "next_event": {"action": "off", "epoch": NOW + 4320,
+                                      "label": "OFF at 7:30 AM"}}},
     }
 
     out_dir = os.environ.get("DISPLAY_PREVIEW_DIR", "/tmp")

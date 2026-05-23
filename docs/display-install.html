@@ -227,21 +227,27 @@ sudo systemctl poweroff</code></pre>Wait for the green ACT LED to stop blinking,
 <h2>Wiring</h2>
 <p>Pi Zero W 40-pin header. <strong>All connections use 3.3V logic and 3V3 power</strong> — do <em>not</em> wire VCC to the Pi's 5V rail even though the display says it accepts 5V.</p>
 
+<p>Order below matches the board's left-to-right silkscreen labels — sweep across the header pins in order. Skipped rows are pins to leave unconnected.</p>
+
 <table class="pinmap">
   <thead>
-    <tr><th>Display pin</th><th>Pi BCM</th><th>Pi header pin</th><th>Notes</th></tr>
+    <tr><th>#</th><th>Display pin</th><th>Pi BCM</th><th>Pi header pin</th><th>Notes</th></tr>
   </thead>
   <tbody>
-    <tr class="power"><td>VCC</td><td>3V3</td><td>17</td><td>Power. Use 3V3, not 5V. Shares pin 17 with LED — see note below.</td></tr>
-    <tr class="gnd"><td>GND</td><td>GND</td><td>6</td><td>Any GND pin works (6/9/14/20/25/30/34/39).</td></tr>
-    <tr><td>CS</td><td>BCM 8</td><td>24</td><td>SPI0 CE0 — display chip select.</td></tr>
-    <tr><td>RESET</td><td>BCM 25</td><td>22</td><td>Display reset, driven by luma.lcd at init.</td></tr>
-    <tr><td>DC</td><td>BCM 24</td><td>18</td><td>Data / command select.</td></tr>
-    <tr><td>SDI / MOSI</td><td>BCM 10</td><td>19</td><td>SPI MOSI. Shared with the touch chip.</td></tr>
-    <tr><td>SCK</td><td>BCM 11</td><td>23</td><td>SPI clock. Shared with the touch chip.</td></tr>
-    <tr><td>SDO / MISO</td><td>BCM 9</td><td>21</td><td>SPI MISO. Needed by the touch chip (display alone wouldn't need it).</td></tr>
-    <tr><td>T_CS</td><td>BCM 7</td><td>26</td><td>SPI0 CE1 — touch chip select. Distinct from CS / BCM 8.</td></tr>
-    <tr class="power"><td>LED</td><td>3V3</td><td>17</td><td>Backlight, always-on. Shares pin 17 with VCC — see note below.</td></tr>
+    <tr class="power"><td>1</td><td>VCC</td><td>3V3</td><td>17</td><td>Power. Use 3V3, not 5V. Shares pin 17 with LED — see note below.</td></tr>
+    <tr class="gnd"><td>2</td><td>GND</td><td>GND</td><td>6</td><td>Any GND pin works (6/9/14/20/25/30/34/39).</td></tr>
+    <tr><td>3</td><td>CS</td><td>BCM 8</td><td>24</td><td>SPI0 CE0 — display chip select.</td></tr>
+    <tr><td>4</td><td>RESET</td><td>BCM 25</td><td>22</td><td>Display reset, driven by luma.lcd at init.</td></tr>
+    <tr><td>5</td><td>DC</td><td>BCM 24</td><td>18</td><td>Data / command select.</td></tr>
+    <tr><td>6</td><td>SDI (MOSI)</td><td>BCM 10</td><td>19</td><td>SPI MOSI. Shared internally with touch.</td></tr>
+    <tr><td>7</td><td>SCK</td><td>BCM 11</td><td>23</td><td>SPI clock. Shared internally with touch.</td></tr>
+    <tr class="power"><td>8</td><td>LED</td><td>3V3</td><td>17</td><td>Backlight, always-on. Shares pin 17 with VCC — see note below.</td></tr>
+    <tr><td>9</td><td>SDO (MISO)</td><td>BCM 9</td><td>21</td><td>SPI MISO. Needed by the touch chip (display alone wouldn't need it).</td></tr>
+    <tr style="opacity:0.5"><td>10</td><td>T_CLK</td><td>—</td><td>—</td><td>Leave unconnected. Internally tied to SCK on this PCB.</td></tr>
+    <tr><td>11</td><td>T_CS</td><td>BCM 7</td><td>26</td><td>SPI0 CE1 — touch chip select. Distinct from CS / BCM 8.</td></tr>
+    <tr style="opacity:0.5"><td>12</td><td>T_DIN</td><td>—</td><td>—</td><td>Leave unconnected. Internally tied to MOSI.</td></tr>
+    <tr style="opacity:0.5"><td>13</td><td>T_DO</td><td>—</td><td>—</td><td>Leave unconnected. Internally tied to MISO.</td></tr>
+    <tr style="opacity:0.5"><td>14</td><td>T_IRQ</td><td>—</td><td>—</td><td>Leave unconnected. Driver polls touch state, no IRQ needed.</td></tr>
   </tbody>
 </table>
 
@@ -253,8 +259,6 @@ sudo systemctl poweroff</code></pre>Wait for the green ACT LED to stop blinking,
     <li><strong>Pigtail off the temp probe</strong>: only works if the existing pin-1 connector accepts a stacked second jumper (most Dupont housings don't). Usually impractical.</li>
   </ol>
 </div>
-
-<p>The other touch pins on the display (<code>T_CLK</code>, <code>T_DIN</code>, <code>T_DO</code>, <code>T_IRQ</code>) are <strong>left unconnected</strong>: <code>T_CLK</code>/<code>T_DIN</code>/<code>T_DO</code> are internally shared with the display's SPI bus on this PCB, and <code>T_IRQ</code> is optional (the driver polls instead).</p>
 
 <div class="note tip">
   <strong>Tip:</strong> use consistent jumper colors so you can trace at a glance — red = 3V3, black = GND, anything else for signals. Verify each jumper end-to-end with a continuity test (or just gently tug) before powering on.

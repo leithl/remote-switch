@@ -232,7 +232,7 @@ sudo systemctl poweroff</code></pre>Wait for the green ACT LED to stop blinking,
     <tr><th>Display pin</th><th>Pi BCM</th><th>Pi header pin</th><th>Notes</th></tr>
   </thead>
   <tbody>
-    <tr class="power"><td>VCC</td><td>3V3</td><td>1</td><td>Power. Use 3V3, not 5V.</td></tr>
+    <tr class="power"><td>VCC</td><td>3V3</td><td>17</td><td>Power. Use 3V3, not 5V. Shares pin 17 with LED — see note below.</td></tr>
     <tr class="gnd"><td>GND</td><td>GND</td><td>6</td><td>Any GND pin works (6/9/14/20/25/30/34/39).</td></tr>
     <tr><td>CS</td><td>BCM 8</td><td>24</td><td>SPI0 CE0 — display chip select.</td></tr>
     <tr><td>RESET</td><td>BCM 25</td><td>22</td><td>Display reset, driven by luma.lcd at init.</td></tr>
@@ -241,9 +241,18 @@ sudo systemctl poweroff</code></pre>Wait for the green ACT LED to stop blinking,
     <tr><td>SCK</td><td>BCM 11</td><td>23</td><td>SPI clock. Shared with the touch chip.</td></tr>
     <tr><td>SDO / MISO</td><td>BCM 9</td><td>21</td><td>SPI MISO. Needed by the touch chip (display alone wouldn't need it).</td></tr>
     <tr><td>T_CS</td><td>BCM 7</td><td>26</td><td>SPI0 CE1 — touch chip select. Distinct from CS / BCM 8.</td></tr>
-    <tr class="power"><td>LED</td><td>3V3</td><td>17</td><td>Backlight, always-on. PWM dimming via GPIO is a later option.</td></tr>
+    <tr class="power"><td>LED</td><td>3V3</td><td>17</td><td>Backlight, always-on. Shares pin 17 with VCC — see note below.</td></tr>
   </tbody>
 </table>
+
+<div class="note tip">
+  <strong>Pin 1 is occupied by the DS18B20 temp probe</strong>, so VCC + LED both share <strong>pin 17</strong> (the Pi's other 3V3 pin). Three ways to land two wires on one pin:
+  <ol>
+    <li><strong>Bridge on the display side</strong> (cleanest if you have a male-male jumper or scrap of solid wire): one F-F jumper from Pi pin 17 → display VCC, then a short male-male jumper between the display's VCC and LED pins.</li>
+    <li><strong>Y-pigtail / breadboard</strong>: distribute pin 17 through a tiny breadboard rail, run separate jumpers from the rail to VCC and to LED.</li>
+    <li><strong>Pigtail off the temp probe</strong>: only works if the existing pin-1 connector accepts a stacked second jumper (most Dupont housings don't). Usually impractical.</li>
+  </ol>
+</div>
 
 <p>The other touch pins on the display (<code>T_CLK</code>, <code>T_DIN</code>, <code>T_DO</code>, <code>T_IRQ</code>) are <strong>left unconnected</strong>: <code>T_CLK</code>/<code>T_DIN</code>/<code>T_DO</code> are internally shared with the display's SPI bus on this PCB, and <code>T_IRQ</code> is optional (the driver polls instead).</p>
 

@@ -298,7 +298,9 @@ ls /dev/spidev*</code></pre>You should see <code>/dev/spidev0.0</code> and <code
 <h2>Install luma.lcd</h2>
 <div class="step">
   <input type="checkbox" id="i1">
-  <div class="step-body"><label for="i1">Install the driver. On Bookworm, pip needs the <code>--break-system-packages</code> flag (or use a venv — this project doesn't, so match the existing convention).<pre><code>sudo pip install luma.lcd --break-system-packages</code></pre></label></div>
+  <div class="step-body"><label for="i1">Install the driver. Try the older pip syntax first; if it errors with "externally-managed-environment" (Bookworm), retry with the flag.<pre><code>sudo pip install luma.lcd
+# If that fails on Bookworm:
+sudo pip install luma.lcd --break-system-packages</code></pre></label></div>
 </div>
 <div class="step">
   <input type="checkbox" id="i2">

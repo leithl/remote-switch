@@ -68,9 +68,12 @@ def _open_device():
     from luma.lcd.device import ili9341
 
     serial = spi(port=SPI_PORT, device=SPI_DEV, gpio_DC=GPIO_DC, gpio_RST=GPIO_RST)
-    # rotate=1 → landscape orientation (320 wide × 240 tall). The renderer
-    # produces images in that orientation; rotate=0 would render sideways.
-    return ili9341(serial, rotate=1, width=display.WIDTH, height=display.HEIGHT)
+    # The ili9341 chip is natively portrait (240×320). luma.lcd swaps
+    # width/height on odd rotate values, so rotate=1 expects a 240×320
+    # image — but our renderer produces 320×240 landscape. Use rotate=0
+    # (no swap) so the device matches our image dimensions. If the panel
+    # is physically mounted upside-down, switch to rotate=2 (180° flip).
+    return ili9341(serial, rotate=0, width=display.WIDTH, height=display.HEIGHT)
 
 
 def _open_touch():

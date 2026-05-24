@@ -298,11 +298,12 @@ ls /dev/spidev*</code></pre>You should see <code>/dev/spidev0.0</code> and <code
 <h2>Install luma.lcd</h2>
 <div class="step">
   <input type="checkbox" id="i1">
-  <div class="step-body"><label for="i1">Install the apt deps first — pillow has no pre-built wheel for armv6 (Pi Zero W), so the apt version saves ~10 minutes of on-Pi compilation. <code>python3-spidev</code> is needed by <code>touch.py</code>.<pre><code>sudo apt install -y python3-pil python3-spidev libjpeg-dev zlib1g-dev</code></pre></label></div>
+  <div class="step-body"><label for="i1">Install the apt deps. <code>python3-spidev</code> is needed by <code>touch.py</code>; the rest are pillow build dependencies (apt's <code>python3-pil</code> is too old for current luma.lcd, so pip will compile a newer pillow on Pi Zero W).<pre><code>sudo apt install -y python3-pil python3-spidev python3-dev \
+    libjpeg-dev zlib1g-dev libfreetype6-dev</code></pre></label></div>
 </div>
 <div class="step">
   <input type="checkbox" id="i2">
-  <div class="step-body"><label for="i2">Install the luma driver. Try the older pip syntax first; if it errors with "externally-managed-environment" (Bookworm), retry with the flag.<pre><code>sudo pip install luma.lcd
+  <div class="step-body"><label for="i2">Install the luma driver. Pip will compile pillow from source on armv6 — <strong>this takes ~5–10 minutes on a Pi Zero W</strong>, fire and forget. Try the older pip syntax first; if it errors with "externally-managed-environment" (Bookworm), retry with the flag.<pre><code>sudo pip install luma.lcd
 # If that fails on Bookworm:
 sudo pip install luma.lcd --break-system-packages</code></pre></label></div>
 </div>

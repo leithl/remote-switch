@@ -90,22 +90,25 @@ def _flashair_ssid_pattern():
 
 
 def _push(device, ssid_pattern):
-    """Render one frame and push it. Errors logged, never raised."""
+    """Render one frame and push it. Returns True iff the push succeeded.
+    Errors logged, never raised."""
     try:
         state = display_state.get_state()
         img = display.render(state, flashair_ssid_pattern=ssid_pattern)
     except Exception as e:
         sys.stderr.write(f"display: state/render failed: {e}\n")
-        return
+        return False
 
     try:
         if device is None:
             img.save(DRY_RUN_OUT)
         else:
             device.display(img)
+        return True
     except Exception as e:
         # Transient SPI hiccups shouldn't kill the loop — systemd Restart handles real crashes.
         sys.stderr.write(f"display: push failed: {e}\n")
+        return False
 
 
 def _toggle_heater():
@@ -182,8 +185,8 @@ def main():
     ssid_pattern = _flashair_ssid_pattern()
 
     if "--once" in sys.argv:
-        _push(device, ssid_pattern)
-        if _is_dry_run():
+        ok = _push(device, ssid_pattern)
+        if _is_dry_run() and ok:
             print(f"wrote {DRY_RUN_OUT}")
         return
 

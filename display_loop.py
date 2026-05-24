@@ -107,7 +107,10 @@ def _push(device, ssid_pattern):
         return True
     except Exception as e:
         # Transient SPI hiccups shouldn't kill the loop — systemd Restart handles real crashes.
-        sys.stderr.write(f"display: push failed: {e}\n")
+        # Include exception class name so silently-stringified errors are diagnosable.
+        sys.stderr.write(
+            f"display: push failed: {type(e).__name__}: {e!r}\n"
+        )
         return False
 
 

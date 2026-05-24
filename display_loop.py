@@ -194,7 +194,11 @@ def main():
         ok = _push(device, ssid_pattern)
         if _is_dry_run() and ok:
             print(f"wrote {DRY_RUN_OUT}")
-        return
+        # Normal interpreter exit triggers luma.lcd's cleanup, which clears
+        # the framebuffer — annoying for install-time verification where the
+        # whole point of --once is "leave one frame on the panel so I can
+        # eyeball it". os._exit skips Python's cleanup chain.
+        os._exit(0 if ok else 1)
 
     try:
         while not _stop:

@@ -9,6 +9,7 @@ import glob
 import json
 import os
 import sqlite3
+import sys
 import urllib.request
 from datetime import datetime
 from io import StringIO
@@ -229,7 +230,11 @@ def fetch_ambient(lat, lon):
         temp = data["current"]["temperature_2m"]
         AMBIENT_CACHE.write_text(f"{now},{temp}\n")
         return float(temp)
-    except Exception:
+    except Exception as e:
+        # Cron captures stderr; route to journal so multi-hour outages
+        # (which silently leave ambient_c=NULL across many rows) are
+        # diagnosable after the fact instead of invisible.
+        print(f"fetch_ambient failed: {type(e).__name__}: {e}", file=sys.stderr)
         return None
 
 

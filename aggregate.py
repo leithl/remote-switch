@@ -332,10 +332,16 @@ def compute_bucketed(rows, cutoff, chart_end, bucket_secs=900):
         if avg_ac_power_w is not None and avg_ac_power_w > POWER_ON_THRESHOLD_W:
             power_data.append({"x": b * 1000, "y": round(avg_ac_power_w, 1)})
 
-        # Ambient (4-bucket rolling avg)
+        # Ambient (4-bucket rolling avg). Clear the window on a null bucket
+        # so a multi-hour API gap doesn't leak its pre-gap values into the
+        # first few post-gap rolling averages — otherwise the chart shows a
+        # phantom 3-minute ramp from the pre-gap temp to the post-gap temp
+        # that didn't actually happen in the weather data.
         if avg_ambient_c is not None:
             amb_window.append(avg_ambient_c * 1.8 + 32)
             ambient_data.append({"x": b * 1000, "y": round(sum(amb_window) / len(amb_window), 1)})
+        else:
+            amb_window.clear()
 
     # Close open ranges
     if in_heater:

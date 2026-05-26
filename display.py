@@ -225,19 +225,23 @@ def flashair_lines(fa):
     if stage == "scanning":
         return ("scanning card", COLOR["flash_active"], None, None, False)
     if stage == "downloading_logs":
-        ctx = f"{session_shots_n} shots queued" if session_shots_n else None
+        shot_word = "shot" if session_shots_n == 1 else "shots"
+        ctx = f"{session_shots_n} {shot_word} queued" if session_shots_n else None
         return (f"downloading  {fd} of {ft} logs",
                 COLOR["flash_active"], cf, ctx, True)
     if stage == "downloading_shots":
-        ctx = f"{session_csv_n} logs done" if session_csv_n else None
+        log_word = "log" if session_csv_n == 1 else "logs"
+        ctx = f"{session_csv_n} {log_word} done" if session_csv_n else None
         return (f"downloading  {fd} of {ft} shots",
                 COLOR["flash_active"], cf, ctx, True)
     if stage == "uploading_logs":
-        ctx = f"{session_shots_n} shots queued" if session_shots_n else None
+        shot_word = "shot" if session_shots_n == 1 else "shots"
+        ctx = f"{session_shots_n} {shot_word} queued" if session_shots_n else None
         return (f"uploading  {fd} of {ft} logs",
                 COLOR["flash_active"], cf, ctx, True)
     if stage == "uploading_shots":
-        ctx = f"{session_csv_n} logs done" if session_csv_n else None
+        log_word = "log" if session_csv_n == 1 else "logs"
+        ctx = f"{session_csv_n} {log_word} done" if session_csv_n else None
         return (f"uploading  {fd} of {ft} shots",
                 COLOR["flash_active"], cf, ctx, True)
     # Back-compat: pre-stage v0 contract inferred "downloading" from the

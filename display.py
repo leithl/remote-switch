@@ -214,14 +214,15 @@ def flashair_lines(fa):
             done_text = f"{n} {log_unit} + {shot_n} {shot_unit}"
         else:
             done_text = f"{n} {log_unit}"
+        # Age goes on the sub line — the headline ran past 320px once the
+        # breakdown carried both logs and shots ("done — 6 logs + 1 shot,
+        # 28s ago" clipped the trailing "o").
+        ago = f"{fmt_age(age_since_sync)} ago" if age_since_sync is not None else None
         if age_since_sync is not None and age_since_sync < DONE_WINDOW_SECS:
-            return (f"done — {done_text}, {fmt_age(age_since_sync)} ago",
-                    COLOR["flash_done"], None, None, False)
-        # Mirror the "done —" structure; "last sync" pushed the line past
-        # 320px when both logs and shots had counts in the breakdown.
-        ago = fmt_age(age_since_sync) if age_since_sync is not None else "—"
-        return (f"idle — {done_text}, {ago} ago",
-                COLOR["flash_idle"], None, None, False)
+            return (f"done — {done_text}",
+                    COLOR["flash_done"], ago, None, False)
+        return (f"idle — {done_text}",
+                COLOR["flash_idle"], ago, None, False)
     if stage == "scanning":
         return ("scanning card", COLOR["flash_active"], None, None, False)
     if stage == "downloading_logs":

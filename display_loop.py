@@ -33,8 +33,9 @@ import display          # noqa: E402
 import display_state    # noqa: E402
 
 
-UPDATE_INTERVAL_SECS     = 5
-TOUCH_POLL_INTERVAL_SECS = 0.05    # 20 Hz touch polling between display refreshes
+UPDATE_INTERVAL_SECS      = 5
+UPDATE_INTERVAL_FAST_SECS = 1      # used while a 'Xs ago' counter is on screen
+TOUCH_POLL_INTERVAL_SECS  = 0.05   # 20 Hz touch polling between display refreshes
 TOUCH_DEBOUNCE_SECS      = 1.0     # ignore taps within this window of the last one
 DRY_RUN_OUT              = Path("/tmp/display-current.png")
 
@@ -46,6 +47,7 @@ SPI_DEV  = 0   # SPI0 CE0 — the display's chip select (BCM 8)
 
 
 _stop = False
+_redraw_now = False    # set by _poll_touch when an action fires; consumed by _sleep_with_touch
 _last_tap_epoch = 0.0
 
 
@@ -93,28 +95,34 @@ def _flashair_ssid_pattern():
 
 
 def _push(device, ssid_pattern):
-    """Render one frame and push it. Returns True iff the push succeeded.
-    Errors logged, never raised."""
+    """Render one frame and push it. Returns (ok, next_interval_secs).
+    Errors logged, never raised; failure paths fall back to the slow interval."""
     try:
         state = display_state.get_state()
         img = display.render(state, flashair_ssid_pattern=ssid_pattern)
     except Exception as e:
         sys.stderr.write(f"display: state/render failed: {e}\n")
-        return False
+        return False, UPDATE_INTERVAL_SECS
+
+    next_interval = (
+        UPDATE_INTERVAL_FAST_SECS
+        if display.has_seconds_resolution(state)
+        else UPDATE_INTERVAL_SECS
+    )
 
     try:
         if device is None:
             img.save(DRY_RUN_OUT)
         else:
             device.display(img)
-        return True
+        return True, next_interval
     except Exception as e:
         # Transient SPI hiccups shouldn't kill the loop — systemd Restart handles real crashes.
         # Include exception class name so silently-stringified errors are diagnosable.
         sys.stderr.write(
             f"display: push failed: {type(e).__name__}: {e!r}\n"
         )
-        return False
+        return False, UPDATE_INTERVAL_SECS
 
 
 def _toggle_heater():
@@ -151,20 +159,26 @@ def _poll_touch(touch_reader):
     x_px, y_px = touch_reader.to_pixels(*avg)
     import touch  # local module; cheap re-import is cached
     if touch.point_in_rect(x_px, y_px, display.HEATER_BUTTON_RECT):
+        global _redraw_now
         _last_tap_epoch = now
         _toggle_heater()
+        _redraw_now = True   # wake _sleep_with_touch so the button color flips immediately
 
 
 def _sleep_with_touch(secs, touch_reader):
     """Sleep for `secs` total, polling touch every TOUCH_POLL_INTERVAL_SECS
-    and breaking early on SIGTERM. Replaces the previous plain time.sleep
-    chunks in the main loop."""
+    and breaking early on SIGTERM or when a tap requests an immediate redraw.
+    Replaces the previous plain time.sleep chunks in the main loop."""
+    global _redraw_now
     chunks = int(secs / TOUCH_POLL_INTERVAL_SECS)
     for _ in range(chunks):
         if _stop:
             return
         if touch_reader is not None:
             _poll_touch(touch_reader)
+        if _redraw_now:
+            _redraw_now = False
+            return
         time.sleep(TOUCH_POLL_INTERVAL_SECS)
 
 
@@ -191,7 +205,7 @@ def main():
     ssid_pattern = _flashair_ssid_pattern()
 
     if "--once" in sys.argv:
-        ok = _push(device, ssid_pattern)
+        ok, _ = _push(device, ssid_pattern)
         if _is_dry_run() and ok:
             print(f"wrote {DRY_RUN_OUT}")
         # Normal interpreter exit triggers luma.lcd's cleanup, which clears
@@ -202,8 +216,8 @@ def main():
 
     try:
         while not _stop:
-            _push(device, ssid_pattern)
-            _sleep_with_touch(UPDATE_INTERVAL_SECS, touch_reader)
+            _, interval = _push(device, ssid_pattern)
+            _sleep_with_touch(interval, touch_reader)
     finally:
         if touch_reader is not None:
             touch_reader.close()

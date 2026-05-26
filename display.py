@@ -143,6 +143,22 @@ def fmt_age(secs):
     return f"{secs // 86400}d"
 
 
+def has_seconds_resolution(state):
+    """True if any field in this state would render fmt_age() in the seconds
+    branch (< 60s). The display loop uses this to tighten the refresh interval
+    so the visible 'Xs ago' counter ticks every second instead of jumping in
+    5-second steps. Only the FlashAir block has seconds-resolution callers."""
+    fa = state.get("flashair")
+    if fa is None:
+        return False
+    now = state.get("now_epoch", 0)
+    for key in ("epoch", "last_sync_epoch"):
+        t = fa.get(key)
+        if t is not None and 0 <= now - t < 60:
+            return True
+    return False
+
+
 def fmt_until(secs):
     if secs is None or secs < 0:
         return ""

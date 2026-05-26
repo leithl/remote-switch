@@ -312,11 +312,18 @@ var fanData = buildRangeData(data, fanRanges);
 // x-values with null in the gaps. Chart.js tooltip.mode='index' looks items
 // up by array index across datasets, so a sparse dataset misses tooltips
 // at the very x positions where it does have a point. Heater/fan get the
-// same treatment via buildRangeData above.
+// same treatment via buildRangeData above. ambientData gets it too: when
+// the upstream weather API fails, ambient_c is null for those buckets and
+// aggregate.py skips them, leaving fewer ambient points than temp points.
 var powerByX = {};
 powerData.forEach(function(p) { powerByX[p.x] = p.y; });
 var powerDataAligned = data.map(function(d) {
   return { x: d.x, y: powerByX[d.x] !== undefined ? powerByX[d.x] : null };
+});
+var ambientByX = {};
+ambientData.forEach(function(p) { ambientByX[p.x] = p.y; });
+var ambientDataAligned = data.map(function(d) {
+  return { x: d.x, y: ambientByX[d.x] !== undefined ? ambientByX[d.x] : null };
 });
 // Inline cold-band plugin: replaces chartjs-plugin-annotation (~12 KB) for
 // the single use case of drawing orange boxes over cold-temp ranges.
@@ -395,7 +402,10 @@ if (data.length > 0) {
         tension: 0.3,
         spanGaps: false
       }, {
-        data: ambientData,
+        // Ambient is sparse when the upstream weather API fails — align
+        // it to the temp x-array (nulls where ambient is missing) so the
+        // tooltip's mode='index' lookup finds the matching point.
+        data: ambientDataAligned,
         borderColor: 'rgb(34, 197, 94)',
         backgroundColor: 'transparent',
         fill: false,

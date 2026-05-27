@@ -214,30 +214,35 @@ def flashair_lines(fa):
             done_text = f"{n} {log_unit} + {shot_n} {shot_unit}"
         else:
             done_text = f"{n} {log_unit}"
+        # Age goes on the sub line — the headline ran past 320px once the
+        # breakdown carried both logs and shots ("done — 6 logs + 1 shot,
+        # 28s ago" clipped the trailing "o").
+        ago = f"{fmt_age(age_since_sync)} ago" if age_since_sync is not None else None
         if age_since_sync is not None and age_since_sync < DONE_WINDOW_SECS:
-            return (f"done — {done_text}, {fmt_age(age_since_sync)} ago",
-                    COLOR["flash_done"], None, None, False)
-        # Mirror the "done —" structure; "last sync" pushed the line past
-        # 320px when both logs and shots had counts in the breakdown.
-        ago = fmt_age(age_since_sync) if age_since_sync is not None else "—"
-        return (f"idle — {done_text}, {ago} ago",
-                COLOR["flash_idle"], None, None, False)
+            return (f"done — {done_text}",
+                    COLOR["flash_done"], ago, None, False)
+        return (f"idle — {done_text}",
+                COLOR["flash_idle"], ago, None, False)
     if stage == "scanning":
         return ("scanning card", COLOR["flash_active"], None, None, False)
     if stage == "downloading_logs":
-        ctx = f"{session_shots_n} shots queued" if session_shots_n else None
+        shot_word = "shot" if session_shots_n == 1 else "shots"
+        ctx = f"{session_shots_n} {shot_word} queued" if session_shots_n else None
         return (f"downloading  {fd} of {ft} logs",
                 COLOR["flash_active"], cf, ctx, True)
     if stage == "downloading_shots":
-        ctx = f"{session_csv_n} logs done" if session_csv_n else None
+        log_word = "log" if session_csv_n == 1 else "logs"
+        ctx = f"{session_csv_n} {log_word} done" if session_csv_n else None
         return (f"downloading  {fd} of {ft} shots",
                 COLOR["flash_active"], cf, ctx, True)
     if stage == "uploading_logs":
-        ctx = f"{session_shots_n} shots queued" if session_shots_n else None
+        shot_word = "shot" if session_shots_n == 1 else "shots"
+        ctx = f"{session_shots_n} {shot_word} queued" if session_shots_n else None
         return (f"uploading  {fd} of {ft} logs",
                 COLOR["flash_active"], cf, ctx, True)
     if stage == "uploading_shots":
-        ctx = f"{session_csv_n} logs done" if session_csv_n else None
+        log_word = "log" if session_csv_n == 1 else "logs"
+        ctx = f"{session_csv_n} {log_word} done" if session_csv_n else None
         return (f"uploading  {fd} of {ft} shots",
                 COLOR["flash_active"], cf, ctx, True)
     # Back-compat: pre-stage v0 contract inferred "downloading" from the

@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import config           # noqa: E402  (path-modifying import above)
 import display          # noqa: E402
 import display_state    # noqa: E402
+import flashair         # noqa: E402
 
 
 UPDATE_INTERVAL_SECS      = 5
@@ -165,10 +166,21 @@ def _poll_touch(touch_reader):
         _redraw_now = True   # wake _sleep_with_touch so the button color flips immediately
 
 
-def _sleep_with_touch(secs, touch_reader):
+def _flashair_mtime_ns():
+    """Returns the FlashAir status file's mtime in ns, or 0 if absent / unreadable.
+    Used to wake the render loop within ~50 ms of any daemon status write, instead
+    of waiting out the fixed 1s/5s cadence. The daemon writes via atomic temp+rename
+    (flashair_sync._write_status), so every transition bumps mtime cleanly."""
+    try:
+        return flashair.FLASHAIR_STATUS_FILE.stat().st_mtime_ns
+    except OSError:
+        return 0
+
+
+def _sleep_with_touch(secs, touch_reader, fa_mtime_baseline):
     """Sleep for `secs` total, polling touch every TOUCH_POLL_INTERVAL_SECS
-    and breaking early on SIGTERM or when a tap requests an immediate redraw.
-    Replaces the previous plain time.sleep chunks in the main loop."""
+    and breaking early on SIGTERM, on a tap requesting an immediate redraw,
+    or when the FlashAir status file changes (daemon wrote new state)."""
     global _redraw_now
     chunks = int(secs / TOUCH_POLL_INTERVAL_SECS)
     for _ in range(chunks):
@@ -178,6 +190,8 @@ def _sleep_with_touch(secs, touch_reader):
             _poll_touch(touch_reader)
         if _redraw_now:
             _redraw_now = False
+            return
+        if _flashair_mtime_ns() != fa_mtime_baseline:
             return
         time.sleep(TOUCH_POLL_INTERVAL_SECS)
 
@@ -217,7 +231,11 @@ def main():
     try:
         while not _stop:
             _, interval = _push(device, ssid_pattern)
-            _sleep_with_touch(interval, touch_reader)
+            # Capture mtime after rendering — the frame on screen reflects whatever
+            # was in the file at that moment, so a later mtime means there's new
+            # state to render.
+            fa_mtime = _flashair_mtime_ns()
+            _sleep_with_touch(interval, touch_reader, fa_mtime)
     finally:
         if touch_reader is not None:
             touch_reader.close()

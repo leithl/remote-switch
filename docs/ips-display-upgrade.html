@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hangar display — IPS upgrade</title>
+  <style>
+    :root {
+      --bg: #0d0e10;
+      --panel: #16181d;
+      --rule: #2a2d33;
+      --fg: #e6e7eb;
+      --fg-dim: #9b9ea6;
+      --fg-very-dim: #6a6d75;
+      --accent: #6ec8ff;
+      --warn: #ffb44a;
+      --bad: #ff6258;
+      --ok: #84d99c;
+      --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 1.5rem;
+      background: var(--bg);
+      color: var(--fg);
+      font: 15px/1.55 var(--sans);
+      max-width: 880px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    h1 {
+      font-size: 1.65rem;
+      margin: 0 0 0.25rem;
+    }
+    h2 {
+      font-size: 1.15rem;
+      margin: 2rem 0 0.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--rule);
+      color: var(--accent);
+    }
+    h3 {
+      font-size: 1rem;
+      margin: 1.25rem 0 0.5rem;
+      color: var(--fg-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .lede {
+      color: var(--fg-dim);
+      margin: 0 0 1.5rem;
+    }
+    code, pre, kbd {
+      font-family: var(--mono);
+      font-size: 0.9em;
+    }
+    code {
+      background: var(--panel);
+      padding: 0.1em 0.35em;
+      border-radius: 3px;
+    }
+    pre {
+      background: var(--panel);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      padding: 0.75rem 1rem;
+      overflow-x: auto;
+      margin: 0.5rem 0 1rem;
+    }
+    pre code { background: none; padding: 0; }
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.7rem;
+      margin: 0.4rem 0;
+      padding: 0.35rem 0;
+    }
+    .step input[type=checkbox] {
+      flex: 0 0 auto;
+      width: 22px;
+      height: 22px;
+      margin-top: 1px;
+      cursor: pointer;
+      accent-color: var(--ok);
+    }
+    .step-body {
+      flex: 1;
+      min-width: 0;
+    }
+    .step.done .step-body {
+      color: var(--fg-very-dim);
+      text-decoration: line-through;
+    }
+    .step.done pre, .step.done code {
+      opacity: 0.5;
+    }
+    .note {
+      border-left: 3px solid var(--warn);
+      background: var(--panel);
+      padding: 0.65rem 0.9rem;
+      margin: 0.75rem 0;
+      border-radius: 0 4px 4px 0;
+      font-size: 0.93em;
+    }
+    .note.danger { border-left-color: var(--bad); }
+    .note.tip    { border-left-color: var(--accent); }
+    .note strong { color: var(--warn); }
+    .note.danger strong { color: var(--bad); }
+    .note.tip strong    { color: var(--accent); }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 0.5rem 0 1rem;
+      font-size: 0.93em;
+    }
+    th, td {
+      border-bottom: 1px solid var(--rule);
+      padding: 0.45rem 0.6rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { color: var(--fg-dim); font-weight: 600; font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.05em; }
+    td code { font-size: 0.95em; }
+    /* Migration pinmap — old vs new columns get different highlight states */
+    .migration td:nth-child(1) { font-weight: 600; }
+    .migration td:nth-child(2) { color: var(--fg-dim); }
+    .migration td:nth-child(3),
+    .migration td:nth-child(4) { font-family: var(--mono); }
+    .migration td:nth-child(3) { color: var(--fg-very-dim); }   /* old pin — fading out */
+    .migration td:nth-child(4) { color: var(--accent); }        /* new pin */
+    .migration tr.same       td:nth-child(4) { color: var(--fg-dim); }    /* unchanged → muted */
+    .migration tr.move       td:nth-child(4) { color: var(--warn); }       /* changed */
+    .migration tr.added      td:nth-child(3) { color: var(--fg-very-dim); }
+    .migration tr.added      td:nth-child(4) { color: var(--ok); }        /* new wire */
+    .migration tr.removed    td:nth-child(4) { color: var(--bad); }       /* wire pulled */
+    .migration td:nth-child(5) {
+      font-size: 0.88em;
+      color: var(--fg-dim);
+    }
+    .badge {
+      display: inline-block;
+      font-size: 0.72em;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.05em 0.45em;
+      border-radius: 3px;
+      margin-left: 0.4em;
+      vertical-align: middle;
+    }
+    .badge.same    { background: #2a2d33; color: var(--fg-dim); }
+    .badge.move    { background: #4a3a1c; color: var(--warn); }
+    .badge.added   { background: #1d3a25; color: var(--ok); }
+    .badge.removed { background: #4a1d1f; color: var(--bad); }
+    .specs td:first-child { color: var(--fg-dim); width: 30%; }
+    .specs td:nth-child(2) { color: var(--fg-very-dim); }
+    .specs td:nth-child(3) { color: var(--accent); }
+    .reset {
+      margin-top: 2.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--rule);
+      text-align: center;
+    }
+    .reset button {
+      background: var(--panel);
+      color: var(--fg-dim);
+      border: 1px solid var(--rule);
+      padding: 0.4rem 0.9rem;
+      border-radius: 4px;
+      font: inherit;
+      font-size: 0.85em;
+      cursor: pointer;
+    }
+    .reset button:hover {
+      background: var(--rule);
+      color: var(--fg);
+    }
+    .progress {
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      padding: 0.6rem 0;
+      margin: -1.5rem -1.5rem 1.5rem;
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+      border-bottom: 1px solid var(--rule);
+      font-size: 0.85em;
+      color: var(--fg-dim);
+      z-index: 10;
+    }
+    .progress-bar {
+      height: 3px;
+      background: var(--rule);
+      border-radius: 2px;
+      margin-top: 0.35rem;
+      overflow: hidden;
+    }
+    .progress-bar > div {
+      height: 100%;
+      background: var(--ok);
+      transition: width 0.3s ease;
+    }
+    @media print {
+      .progress, .reset { display: none; }
+      body { color: black; background: white; max-width: none; }
+      h2 { color: black; border-top-color: #ccc; }
+      h3, .lede { color: #444; }
+      pre, code { background: #f4f4f4; color: black; }
+      .note { background: #fafafa; }
+      .step.done .step-body { text-decoration: none; color: #888; }
+      .migration td:nth-child(3),
+      .migration td:nth-child(4) { color: black; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="progress">
+  <span id="progress-text">0 of 0 steps done</span>
+  <div class="progress-bar"><div id="progress-fill" style="width: 0%"></div></div>
+</div>
+
+<h1>Hangar display — IPS upgrade</h1>
+<p class="lede">
+  Migration cheat-sheet for swapping the original 3.2" MSP3218 panel for a 3.5" Haldzemo IPS (ST7796U + FT6336U capacitive). The whole upgrade is designed for <strong>one hangar visit and one reboot</strong> — pre-trip prep is done from your laptop, then the on-site work is just rewiring + power-on. Check off each step as you go; progress is saved per-browser.
+</p>
+
+<h2>Why we're upgrading</h2>
+<p>
+  XPT2046 touch chip on the original board stopped responding on <strong>2026-05-27</strong> — display rendered fine but every diagnostic command returned all-zero MISO across 30+ samples. Pi-side SPI verified healthy (CE1 toggles correctly during transactions), both touch wires confirmed end-to-end with correct continuity, IC silkscreen confirmed XPT2046 — so the fault is on the display PCB side. Most likely a cold joint on Q1 (the NPN buffer between XPT2046's DOUT and the external SDO pad) or the chip itself. Reflowing fine-pitch SMD with the panel still attached needs hot-air gear; a $19 replacement that also gets us IPS was the right call.
+</p>
+
+<h2>What's changing — at a glance</h2>
+<table class="specs">
+  <thead><tr><th>Aspect</th><th>Old (MSP3218)</th><th>New (Haldzemo 3.5")</th></tr></thead>
+  <tbody>
+    <tr><td>Panel size</td><td>3.2"</td><td>3.5"</td></tr>
+    <tr><td>Panel type</td><td>TN</td><td>IPS (≥80° viewing angle)</td></tr>
+    <tr><td>Native resolution</td><td>240×320 (rendered 320×240 landscape)</td><td>320×480 (rendered 480×320 landscape)</td></tr>
+    <tr><td>Display IC</td><td>ILI9341</td><td>ST7796U</td></tr>
+    <tr><td>Touch IC</td><td>XPT2046 (resistive)</td><td>FT6336U (capacitive)</td></tr>
+    <tr><td>Touch bus</td><td>SPI (CE1 on Pi pin 26)</td><td>I2C (SDA/SCL on Pi pins 3/5)</td></tr>
+    <tr><td>Touch calibration</td><td>Required (4-corner walkthrough)</td><td>Not required (pre-calibrated coords from chip)</td></tr>
+    <tr><td>VCC / LED supply</td><td>3V3 (Pi pin 17)</td><td>5V (Pi pin 2)</td></tr>
+    <tr><td>SPI logic level</td><td>3.3V direct</td><td>3.3V through on-board level shifters</td></tr>
+  </tbody>
+</table>
+
+<h2>Parts check</h2>
+<div class="step">
+  <input type="checkbox" id="p1">
+  <div class="step-body"><label for="p1"><strong>3.5" IPS SPI display</strong> — Haldzemo 320×480 with ST7796U driver and FT6336U capacitive touch. 14-pin 2.54mm header on the back; silkscreen reads <code>3.5" TFT SPI 480X320 V1.0 Capacitive Touch</code>.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="p2">
+  <div class="step-body"><label for="p2"><strong>Two extra F-F dupont jumpers</strong> — one each for CTP_SDA and CTP_SCL. The existing cable doesn't have them.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="p3">
+  <div class="step-body"><label for="p3"><strong>Y-pigtail or breadboard rail</strong> for the 5V split (Pi pin 2 needs to feed both VCC and LED). A male-male jumper to bridge VCC↔LED on the display side also works.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="p4">
+  <div class="step-body"><label for="p4"><strong>Multimeter</strong> (optional but useful) — for confirming 5V actually reaches the display's VCC pad, and for verifying continuity on the new I2C wires.</label></div>
+</div>
+
+<h2>Pre-trip prep (laptop work, before the display arrives)</h2>
+<p>None of this needs you at the hangar. The new code's already on the branch — you just need to enable I2C on the Pi and have <code>python3-smbus</code> installed so the post-swap boot is a clean cutover.</p>
+
+<div class="step">
+  <input type="checkbox" id="pp1">
+  <div class="step-body"><label for="pp1">Install the I2C Python binding (apt's <code>python3-smbus</code> exposes <code>smbus2</code>-compatible API).<pre><code>ssh pi
+sudo apt install -y python3-smbus</code></pre></label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="pp2">
+  <div class="step-body"><label for="pp2">Enable the I2C peripheral. The Pi's I2C is off by default; <code>touch.py</code> can't open <code>/dev/i2c-1</code> without it.<pre><code>sudo raspi-config nonint do_i2c 0
+sudo reboot</code></pre>The <code>nonint do_i2c 0</code> form edits <code>/boot/firmware/config.txt</code> non-interactively (adds <code>dtparam=i2c_arm=on</code>) and is safe to run idempotently.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="pp3">
+  <div class="step-body"><label for="pp3">After the reboot, confirm <code>/dev/i2c-1</code> exists.<pre><code>ssh pi
+ls /dev/i2c-*</code></pre>Should print <code>/dev/i2c-1</code>. (The old <code>/dev/spidev0.*</code> nodes stay — SPI is still used for the display.)</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="pp4">
+  <div class="step-body"><label for="pp4">Pull the migration branch on the Pi while the <em>old</em> display is still working. The new code expects ST7796U/FT6336U so the display service will fail to push frames until the hardware is swapped — that's the cutover signal, not a regression.<pre><code>cd /usr/lib/cgi-bin/remote-switch
+sudo -u leith git fetch origin
+sudo -u leith git checkout claude/funny-black-e9d7dc
+sudo -u leith git pull</code></pre>(Match the deploy convention — never <code>sudo git pull</code>, it taints file ownership.)</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="pp5">
+  <div class="step-body"><label for="pp5">Stop the display service so it doesn't spam <code>push failed</code> into the journal while the cable is off.<pre><code>sudo systemctl stop display</code></pre></label></div>
+</div>
+
+<h2>Power down before wiring</h2>
+<div class="note danger">
+  <strong>Important:</strong> shut the Pi <em>cleanly</em> before touching wires. The Pi's GPIO is not hot-pluggable, and a wiring slip with the Pi powered can fry both ends. This is doubly true here because VCC is moving from 3V3 to 5V — a slip lands 5V on a 3V3 signal pin if you're not careful.
+</div>
+<div class="step">
+  <input type="checkbox" id="d1">
+  <div class="step-body"><label for="d1">SSH in and shut down cleanly.<pre><code>ssh pi
+sudo systemctl poweroff</code></pre>Wait for the green ACT LED to stop blinking, then unplug power.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="d2">
+  <div class="step-body"><label for="d2">Disconnect all 10 jumpers from the <em>old</em> display board. Keep the housings clipped together if you can — colour-to-pin mapping survives the next step.</label></div>
+</div>
+
+<h2>Wiring — what moves</h2>
+<p>Only four wire positions change. Seven SPI/GND pins stay where they are. Read the table top-to-bottom; the silkscreen on the back of the new board lists pins 1-14 in this same order. <strong>When in doubt, the silkscreen wins.</strong></p>
+
+<table class="migration">
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Display silkscreen</th>
+      <th>Old Pi pin</th>
+      <th>New Pi pin</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr class="move">
+      <td>1</td>
+      <td>VCC</td>
+      <td>17 (3V3)</td>
+      <td>2 (5V) <span class="badge move">move ⟶ 5V</span></td>
+      <td>Board spec is 5V; level shifters protect SPI signals.</td>
+    </tr>
+    <tr class="same">
+      <td>2</td>
+      <td>GND</td>
+      <td>6 (or any GND)</td>
+      <td>6 (or any GND) <span class="badge same">same</span></td>
+      <td>Pins 6 / 9 / 14 / 20 / 25 / 30 / 34 / 39 all work.</td>
+    </tr>
+    <tr class="same">
+      <td>3</td>
+      <td>LCD_CS</td>
+      <td>24 (CE0)</td>
+      <td>24 (CE0) <span class="badge same">same</span></td>
+      <td>SPI0 CE0 — display chip select.</td>
+    </tr>
+    <tr class="same">
+      <td>4</td>
+      <td>LCD_RST</td>
+      <td>22 (BCM 25)</td>
+      <td>22 (BCM 25) <span class="badge same">same</span></td>
+      <td>Display reset, driven by luma.lcd at init.</td>
+    </tr>
+    <tr class="same">
+      <td>5</td>
+      <td>LCD_RS <em>(= DC on the old board)</em></td>
+      <td>18 (BCM 24)</td>
+      <td>18 (BCM 24) <span class="badge same">same</span></td>
+      <td>Data/command select. Function unchanged; silkscreen label is different.</td>
+    </tr>
+    <tr class="same">
+      <td>6</td>
+      <td>MOSI</td>
+      <td>19 (BCM 10)</td>
+      <td>19 (BCM 10) <span class="badge same">same</span></td>
+      <td>SPI MOSI.</td>
+    </tr>
+    <tr class="same">
+      <td>7</td>
+      <td>SCK</td>
+      <td>23 (BCM 11)</td>
+      <td>23 (BCM 11) <span class="badge same">same</span></td>
+      <td>SPI clock.</td>
+    </tr>
+    <tr class="move">
+      <td>8</td>
+      <td>LED</td>
+      <td>17 (3V3)</td>
+      <td>2 (5V) <span class="badge move">move ⟶ 5V</span></td>
+      <td>Backlight, always-on, 95 mA. Joins VCC on the 5V rail via splice / Y-pigtail.</td>
+    </tr>
+    <tr class="same">
+      <td>9</td>
+      <td>MISO</td>
+      <td>21 (BCM 9)</td>
+      <td>21 (BCM 9) <span class="badge same">same</span></td>
+      <td>SPI MISO. Display reads (init checks) use this; FT6336U doesn't.</td>
+    </tr>
+    <tr class="added">
+      <td>10</td>
+      <td>CTP_SCL</td>
+      <td>—</td>
+      <td>5 (BCM 3 / SCL1) <span class="badge added">new wire</span></td>
+      <td>I2C clock for the touch chip. Pi's primary I2C bus.</td>
+    </tr>
+    <tr style="opacity:0.5">
+      <td>11</td>
+      <td>CTP_RST</td>
+      <td>—</td>
+      <td>— <span class="badge same">unconnected</span></td>
+      <td>Touch chip reset. Chip self-inits at power-on; only wire if first power-on shows no response.</td>
+    </tr>
+    <tr class="added">
+      <td>12</td>
+      <td>CTP_SDA</td>
+      <td>—</td>
+      <td>3 (BCM 2 / SDA1) <span class="badge added">new wire</span></td>
+      <td>I2C data for the touch chip.</td>
+    </tr>
+    <tr style="opacity:0.5">
+      <td>13</td>
+      <td>CTP_INT</td>
+      <td>—</td>
+      <td>— <span class="badge same">unconnected</span></td>
+      <td>Touch interrupt. We poll at 20 Hz; no IRQ handler needed.</td>
+    </tr>
+    <tr style="opacity:0.5">
+      <td>14</td>
+      <td>SD_CS</td>
+      <td>—</td>
+      <td>— <span class="badge same">unconnected</span></td>
+      <td>microSD slot chip-select. Not used by this project.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Pi-side summary</h3>
+<table>
+  <thead><tr><th>Pi pin</th><th>Action</th><th>Was / is</th></tr></thead>
+  <tbody>
+    <tr><td><code>2 (5V)</code></td><td><span class="badge added">2 wires added</span></td><td>Was empty. Now feeds both VCC (display pin 1) and LED (display pin 8).</td></tr>
+    <tr><td><code>17 (3V3)</code></td><td><span class="badge removed">2 wires removed</span></td><td>Was VCC + LED on the old display. Now only feeds the DS18B20 temp probe.</td></tr>
+    <tr><td><code>26 (CE1)</code></td><td><span class="badge removed">1 wire removed</span></td><td>Was the XPT2046's T_CS. FT6336U doesn't use SPI; pin freed.</td></tr>
+    <tr><td><code>3 (SDA1)</code></td><td><span class="badge added">1 wire added</span></td><td>I2C data to CTP_SDA (display pin 12).</td></tr>
+    <tr><td><code>5 (SCL1)</code></td><td><span class="badge added">1 wire added</span></td><td>I2C clock to CTP_SCL (display pin 10).</td></tr>
+  </tbody>
+</table>
+
+<div class="note tip">
+  <strong>5V splitter pattern:</strong> Pi pin 2 needs to feed two display pins (VCC + LED). Cleanest: one F-F jumper from Pi pin 2 → display VCC, then a short male-male jumper from VCC over to LED on the display side. A breadboard rail or Y-pigtail off pin 2 also works.
+</div>
+
+<div class="note tip">
+  <strong>Don't worry about CTP_INT / CTP_RST.</strong> Both are designed to float — the chip self-initialises and we poll for touches. Only wire CTP_RST if the very first power-on shows the chip not responding at all (extremely rare with these boards).
+</div>
+
+<h3>Wire verification</h3>
+<div class="step">
+  <input type="checkbox" id="w1">
+  <div class="step-body"><label for="w1">All 11 wires connected to the display side, double-checked against silkscreen labels.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="w2">
+  <div class="step-body"><label for="w2">Pi pin 2 has both VCC and LED on it (not just one).</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="w3">
+  <div class="step-body"><label for="w3">Pi pin 26 is empty (old T_CS wire pulled).</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="w4">
+  <div class="step-body"><label for="w4">Pi pin 17 still has the DS18B20 temp probe (it shares pin 1 in the old layout — verify it's still seated, didn't come out with the VCC/LED wires).</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="w5">
+  <div class="step-body"><label for="w5"><strong>Gentle tug on every wire.</strong> Dupont contacts look mated but can be on the flaky side of the spring; a wire that comes out without resistance won't make contact when the Pi is powered.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="w6">
+  <div class="step-body"><label for="w6">No wires touching adjacent header pins. A one-pin slip can short 5V to a signal pin → dead chip.</label></div>
+</div>
+
+<h2>First light</h2>
+<p>Power the Pi back on and watch the journal for clean startup. The systemd unit auto-starts the display service.</p>
+<div class="step">
+  <input type="checkbox" id="fl1">
+  <div class="step-body"><label for="fl1">Plug the Pi USB power back in. Green ACT LED blinks during boot.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="fl2">
+  <div class="step-body"><label for="fl2">SSH in and tail the journal during the boot.<pre><code>ssh pi
+sudo journalctl -fu display</code></pre>Expected: <code>Started Hangar dashboard ...</code>, no <code>push failed</code>, no <code>touch init failed</code>.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="fl3">
+  <div class="step-body"><label for="fl3">The physical display backlights within ~5 seconds and shows the dashboard (heater state + Schedule + FlashAir section + HVAC/hangar footer).</label></div>
+</div>
+
+<div class="note">
+  <strong>If the display stays blank:</strong> see the <a href="#troubleshooting">troubleshooting section below</a>. Most common cause is the wrong luma driver — if <code>ili9488</code> doesn't produce an image, try <code>ili9486</code> at the two references in <code>display_loop.py</code>.
+</div>
+
+<div class="note">
+  <strong>If the image is rotated 90°:</strong> change <code>rotate=0</code> to <code>rotate=1</code> in <code>display_loop.py:_open_device()</code>. <code>rotate=2</code> = 180° flip, <code>rotate=3</code> = 270°.
+</div>
+
+<div class="note">
+  <strong>If colours look inverted (whites are blue, etc.):</strong> the ST7796U might want <code>bgr=True</code>. Add that arg to the <code>ili9488(...)</code> constructor call.
+</div>
+
+<h2>Touch verification</h2>
+<p>Capacitive controllers report pre-calibrated pixel coords — no 4-corner walkthrough needed. Defaults in <code>touch.py</code> work out of the box for this board's chip orientation. We just need to confirm the chip is talking and the coords match the rendered button.</p>
+
+<div class="step">
+  <input type="checkbox" id="t1">
+  <div class="step-body"><label for="t1">Tap the ON/OFF button on the display. The journal should show a heater toggle line within ~1 second.<pre><code>sudo journalctl -fu display
+# expected (after tap):
+# display: heater toggle 0 -&gt; 1</code></pre></label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="t2">
+  <div class="step-body"><label for="t2">Physical heater state actually changed — verify on the web UI's heater card, or with:<pre><code>cat /sys/class/gpio/gpio17/value</code></pre>If you see toggle log lines and GPIO 17 matches, you're done. Skip to <a href="#final">Final checks</a>.</label></div>
+</div>
+
+<h3>Only if taps don't register: run the I2C scan</h3>
+<div class="step">
+  <input type="checkbox" id="ts1">
+  <div class="step-body"><label for="ts1">Stop the service and probe the I2C bus.<pre><code>sudo systemctl stop display
+sudo python3 /usr/lib/cgi-bin/remote-switch/display_loop.py --scan</code></pre>Expected output (no finger, then tap each corner in order: TL → TR → BL → BR):<pre><code>=== I2C scan on bus 1 ===
+  responding: 0x38
+  ✓ FT6336U expected at 0x38 — present
+
+=== Live touch monitor (10s) — tap each corner ===
+  tap at x=  8 y=  6      ← top-left
+  tap at x=472 y=  9      ← top-right
+  tap at x=  5 y=315      ← bottom-left
+  tap at x=475 y=313      ← bottom-right</code></pre></label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="ts2">
+  <div class="step-body"><label for="ts2">If the scan finds no devices, jump to <a href="#troubleshooting">troubleshooting</a> → "I2C scan finds no devices". Don't proceed.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="ts3">
+  <div class="step-body"><label for="ts3">If the chip responds but corner taps are flipped/mirrored, add overrides to <code>.env</code> per the table below, then restart the service. Restart and re-run <code>--scan</code> to confirm.</label></div>
+</div>
+
+<table>
+  <thead><tr><th>Symptom (top-left tap reports …)</th><th>Fix in <code>.env</code></th></tr></thead>
+  <tbody>
+    <tr><td><code>x=475 y=313</code> (bottom-right)</td><td><code>TOUCH_INVERT_X=1</code> AND <code>TOUCH_INVERT_Y=1</code></td></tr>
+    <tr><td><code>x=475 y=6</code> (top-right)</td><td><code>TOUCH_INVERT_X=1</code></td></tr>
+    <tr><td><code>x=8 y=313</code> (bottom-left)</td><td><code>TOUCH_INVERT_Y=1</code></td></tr>
+    <tr><td>Y values tiny when tapping top↔bottom; X values big when tapping left↔right</td><td><code>TOUCH_SWAP_XY=0</code> (off)</td></tr>
+  </tbody>
+</table>
+
+<pre><code>sudo nano /usr/lib/cgi-bin/remote-switch/.env
+# add or update the relevant TOUCH_* keys
+sudo systemctl start display</code></pre>
+
+<h2 id="final">Final checks</h2>
+<div class="step">
+  <input type="checkbox" id="f1">
+  <div class="step-body"><label for="f1">Reboot the Pi and confirm the display comes up cleanly within ~30s of boot.<pre><code>sudo reboot</code></pre></label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="f2">
+  <div class="step-body"><label for="f2">Toggle the heater from the web UI — display reflects the change within 5 seconds.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="f3">
+  <div class="step-body"><label for="f3">Toggle the heater from the <em>display</em> — tap the button, confirm GPIO + web UI both update.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="f4">
+  <div class="step-body"><label for="f4">Add a heater schedule from the web UI — "Schedule" section on the display shows the next event within 5s.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="f5">
+  <div class="step-body"><label for="f5">FlashAir status surfaces — should show "idle — N logs + M shots" + ago line once flashair-sync has done a cycle.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="f6">
+  <div class="step-body"><label for="f6">No transient SPI / I2C errors after 10 minutes of journal watching:<pre><code>sudo journalctl -u display --since "10 min ago" | grep -E "(failed|error)"</code></pre>Should be empty.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="f7">
+  <div class="step-body"><label for="f7">Old <code>TOUCH_X_MIN</code> / <code>TOUCH_X_MAX</code> / <code>TOUCH_Y_MIN</code> / <code>TOUCH_Y_MAX</code> / <code>TOUCH_AXES_SWAP</code> / <code>TOUCH_X_INVERT</code> / <code>TOUCH_Y_INVERT</code> / <code>TOUCH_PRESSURE_THRESHOLD</code> keys removed from <code>.env</code> (they're obsolete with FT6336U — keep tidy).<pre><code>sudo nano /usr/lib/cgi-bin/remote-switch/.env</code></pre></label></div>
+</div>
+
+<h2 id="troubleshooting">Troubleshooting cheat-sheet</h2>
+<table>
+  <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Display backlights but stays blank</td>
+      <td>Wrong luma driver, or RESET wire not seated</td>
+      <td>Try <code>ili9486</code> in place of <code>ili9488</code> in <code>display_loop.py</code> (two refs at line 86 + 93). Reseat the LCD_RST wire on display pin 4 → Pi pin 22.</td>
+    </tr>
+    <tr>
+      <td>Display dark, no backlight</td>
+      <td>5V not reaching LED</td>
+      <td>Multimeter from Pi pin 2 → display pin 8 should read ~5V. Check the splitter / Y-pigtail.</td>
+    </tr>
+    <tr>
+      <td>Image rotated 90° / 180°</td>
+      <td>MADCTL bits luma sets don't match this panel's orientation</td>
+      <td>Change <code>rotate=0</code> to <code>1</code>, <code>2</code>, or <code>3</code> in <code>display_loop.py:_open_device()</code>.</td>
+    </tr>
+    <tr>
+      <td>Colours inverted (whites are blue)</td>
+      <td>Panel is BGR, code expects RGB</td>
+      <td>Add <code>bgr=True</code> to the <code>ili9488(...)</code> constructor call.</td>
+    </tr>
+    <tr>
+      <td>Service log: <code>push failed: ImportError</code></td>
+      <td>luma.lcd version doesn't have <code>ili9488</code></td>
+      <td><code>sudo pip install --upgrade luma.lcd --break-system-packages</code></td>
+    </tr>
+    <tr>
+      <td>I2C scan finds no devices</td>
+      <td>I2C not enabled, or wires on the wrong pads</td>
+      <td><code>grep i2c /boot/firmware/config.txt</code> should show <code>dtparam=i2c_arm=on</code>. <code>ls /dev/i2c-*</code> should show <code>/dev/i2c-1</code>. Verify SDA=Pi 3, SCL=Pi 5 on the display side too.</td>
+    </tr>
+    <tr>
+      <td>Service log: <code>touch init failed: [Errno 2]</code></td>
+      <td><code>/dev/i2c-1</code> missing</td>
+      <td>Enable I2C: <code>sudo raspi-config nonint do_i2c 0 && sudo reboot</code>.</td>
+    </tr>
+    <tr>
+      <td>Service log: <code>touch read failed: [Errno 121] Remote I/O error</code> (one-off)</td>
+      <td>I2C bus glitch</td>
+      <td>One-off is fine. Persistent (every poll) → loose SDA/SCL contact, or missing pull-ups (add 4.7kΩ from each line to 3V3).</td>
+    </tr>
+    <tr>
+      <td>Heater toggle log appears but tap location feels wrong (button registers from outside the visible rect)</td>
+      <td>Axes swap / invert config off</td>
+      <td>Run <code>--scan</code>, tap each corner, compare to the table in "Touch verification". Set <code>TOUCH_SWAP_XY</code> / <code>TOUCH_INVERT_X</code> / <code>TOUCH_INVERT_Y</code> accordingly.</td>
+    </tr>
+    <tr>
+      <td>Display keeps restarting (systemd <code>Restart=always</code> kicking in)</td>
+      <td>luma init crashing — usually missing controller class or wiring issue</td>
+      <td><code>sudo journalctl -u display -n 50</code> for the stack trace. <code>--once</code> in dry-run mode bypasses SPI to isolate state-side bugs from hardware-side.</td>
+    </tr>
+    <tr>
+      <td>"updated Xm ago" stuck</td>
+      <td>flashair-sync stopped writing the cache</td>
+      <td><code>systemctl status flashair-sync</code></td>
+    </tr>
+    <tr>
+      <td>Heater toggles on its own (ghost taps)</td>
+      <td>Stuck or wet finger on the panel</td>
+      <td>Wipe the screen. Capacitive doesn't have a pressure threshold to raise — if it persists, the chip might be bad.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Code changes</h2>
+<p>What's in the branch that supports this upgrade:</p>
+<table>
+  <thead><tr><th>File</th><th>What changed</th></tr></thead>
+  <tbody>
+    <tr><td><code>touch.py</code></td><td>Full rewrite. <code>TouchReader.read_touch()</code> returns pre-calibrated <code>(x, y)</code> from FT6336U over I2C. <code>run_calibration()</code> removed; <code>run_scan()</code> added.</td></tr>
+    <tr><td><code>display.py</code></td><td>Native 480×320 layout. <code>WIDTH/HEIGHT</code>, <code>HEATER_BUTTON_RECT</code> (now <code>(15, 30, 225, 122)</code> — 210×92 button), all positions and font sizes authored directly for the new resolution.</td></tr>
+    <tr><td><code>display_loop.py</code></td><td>luma.lcd driver: <code>ili9341</code> → <code>ili9488</code>. Touch poll uses the new single-call <code>read_touch()</code>. <code>--calibrate</code> CLI flag → <code>--scan</code>. GPIO pin comments updated for the new silkscreen labels.</td></tr>
+    <tr><td><code>docs/ips-display-upgrade.html</code></td><td>This guide.</td></tr>
+    <tr><td><code>.env</code> (on Pi, not in git)</td><td>Old <code>TOUCH_X_MIN/MAX/SWAP/INVERT/PRESSURE_THRESHOLD</code> keys obsolete. New optional keys (only set after <code>--scan</code> shows wrong axes): <code>TOUCH_I2C_BUS</code> / <code>TOUCH_I2C_ADDR</code> / <code>TOUCH_SWAP_XY</code> / <code>TOUCH_INVERT_X</code> / <code>TOUCH_INVERT_Y</code>. Defaults work out of the box for this board.</td></tr>
+  </tbody>
+</table>
+
+<h2>Rollback</h2>
+<p>If anything goes catastrophically wrong and you need to revert to the old MSP3218:</p>
+<pre><code>ssh pi
+cd /usr/lib/cgi-bin/remote-switch
+sudo -u leith git checkout main
+sudo systemctl stop display
+sudo shutdown -h now
+# then physically swap the old display back in,
+# reverse the four wiring changes (VCC/LED → pin 17, T_CS → pin 26,
+# remove the SDA/SCL wires), and boot.</code></pre>
+<p>The old <code>TOUCH_*</code> keys (if not deleted) are still read by the rolled-back <code>touch.py</code> — different key names from the new I2C keys, so no conflict.</p>
+
+<h2>Files in this repo (display side)</h2>
+<ul>
+  <li><code>display.py</code> — pure renderer; <code>render(state) → PIL.Image</code></li>
+  <li><code>display_state.py</code> — assembles state from /run/ + DB + GPIO + HVAC cache</li>
+  <li><code>display_loop.py</code> — systemd entry point, 5s loop (1s while seconds visible), 20 Hz touch polling, dry-run + scan modes</li>
+  <li><code>touch.py</code> — FT6336U I2C driver, hit-test helper</li>
+  <li><code>display.service</code> — systemd unit, <code>User=root</code> (needs SPI + I2C + GPIO access)</li>
+  <li><code>docs/display-install.html</code> — original install guide (legacy MSP3218 hardware)</li>
+  <li><code>docs/ips-display-upgrade.html</code> — this file</li>
+</ul>
+
+<div class="reset">
+  <button id="reset-btn">Reset progress</button>
+</div>
+
+<script>
+(function() {
+  const KEY = 'hangar-display-ips-upgrade-progress';
+  const boxes = document.querySelectorAll('input[type=checkbox]');
+  const text = document.getElementById('progress-text');
+  const fill = document.getElementById('progress-fill');
+  const reset = document.getElementById('reset-btn');
+
+  // Restore
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY) || '{}');
+    boxes.forEach(b => {
+      if (saved[b.id]) {
+        b.checked = true;
+        b.closest('.step').classList.add('done');
+      }
+    });
+  } catch (e) {}
+
+  function update() {
+    const state = {};
+    let done = 0;
+    boxes.forEach(b => {
+      state[b.id] = b.checked;
+      if (b.checked) done++;
+      b.closest('.step').classList.toggle('done', b.checked);
+    });
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    text.textContent = `${done} of ${boxes.length} steps done`;
+    fill.style.width = `${(done / boxes.length) * 100}%`;
+  }
+
+  boxes.forEach(b => b.addEventListener('change', update));
+  reset.addEventListener('click', () => {
+    if (confirm('Reset all checkboxes?')) {
+      try { localStorage.removeItem(KEY); } catch (e) {}
+      boxes.forEach(b => { b.checked = false; });
+      update();
+    }
+  });
+  update();
+})();
+</script>
+
+</body>
+</html>

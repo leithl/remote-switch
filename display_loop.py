@@ -78,7 +78,7 @@ def _open_device():
     that this pairing works in practice across several MSP3520-style boards
     (Haldzemo / aceirmc / HiLetGo variants). If first power-on shows blank
     screen, garbled colors, or repeated `push failed`, see
-    docs/ips-display-upgrade.md → "If the display stays blank".
+    docs/ips-display-upgrade.html → "Troubleshooting" → "Display backlights but stays blank".
 
     Lazy import so the module loads without luma installed (e.g. macOS dev).
     """

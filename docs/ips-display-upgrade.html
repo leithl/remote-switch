@@ -394,12 +394,12 @@ sudo systemctl poweroff</code></pre>Wait for the green ACT LED to stop blinking,
       <td>5 (BCM 3 / SCL1) <span class="badge added">new wire</span></td>
       <td>I2C clock for the touch chip. Pi's primary I2C bus.</td>
     </tr>
-    <tr style="opacity:0.5">
+    <tr class="removed">
       <td>11</td>
-      <td>CTP_RST</td>
-      <td>—</td>
-      <td>— <span class="badge same">unconnected</span></td>
-      <td>Touch chip reset. Chip self-inits at power-on; only wire if first power-on shows no response.</td>
+      <td>CTP_RST <em>(was T_CS on old)</em></td>
+      <td>26 (CE1)</td>
+      <td>— <span class="badge removed">pull old wire</span></td>
+      <td><strong>Old board had T_CS here, wired to Pi pin 26 for the XPT2046.</strong> New board's CTP_RST at the same header position stays unconnected (the FT6336U self-inits). So the existing wire that runs from this position to Pi 26 should be pulled at both ends, and Pi pin 26 stays empty.</td>
     </tr>
     <tr class="added">
       <td>12</td>

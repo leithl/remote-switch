@@ -1,18 +1,17 @@
 """
-touch.py — XPT2046 resistive touch driver for the hangar dashboard.
+touch.py — FT6336U capacitive touch driver for the hangar dashboard.
 
-Shares the SPI bus with the ILI9341 display but uses SPI0 CE1 (BCM 7) as
-the touch chip-select. Reads X/Y/Z via 3-byte SPI transactions per the
-XPT2046 datasheet, applies linear calibration from raw 12-bit values to
-display pixels (320×240 landscape), and exposes hit-testing for
-display_loop.py.
+I2C-based capacitive controller on the Haldzemo 3.5" IPS display. Reports
+pre-calibrated pixel coordinates directly — no per-panel calibration step,
+no raw → pixel mapping, no axis flipping (unless the chip's native
+orientation doesn't match the LCD's landscape mounting, in which case the
+TOUCH_SWAP_XY / TOUCH_INVERT_* env keys cover it).
 
-Calibration values come from .env. Defaults work for "most" MSP3218-style
-3.2" panels in landscape — refine via `display_loop.py --calibrate` once
-the panel is wired up.
+Replaces the previous XPT2046/SPI driver. The two chips share nothing —
+different bus, different command set, different calibration model — so this
+is a full rewrite, not a port.
 
-Lazy import of `spidev` so this module imports cleanly on machines
-without it (e.g., local dev on macOS).
+Lazy import of `smbus2` so this module imports cleanly on macOS dev.
 """
 
 import time
@@ -20,80 +19,86 @@ from pathlib import Path
 
 import config
 
-# SPI device for the touch panel. CE1 = BCM 7 (header pin 26). The display
-# uses CE0 (BCM 8); both share the SPI0 bus.
-SPI_BUS = 0
-SPI_DEV = 1
+# ---------------------------------------------------------------------------
+# Bus + chip config
+# ---------------------------------------------------------------------------
 
-# XPT2046 command bytes — see datasheet sec 4 "Conversion Channel Selection".
-# We use single-ended 12-bit reads at normal power. Top bit = start, next 3
-# = channel select, then mode + reference + power-down bits.
-_CMD_X  = 0xD0  # 0b1101_0000 — X position
-_CMD_Y  = 0x90  # 0b1001_0000 — Y position
-_CMD_Z1 = 0xB0  # Z1 (pressure indicator A)
+# Pi's primary I2C bus. Bus 0 is reserved on most Pi models for HAT EEPROM;
+# bus 1 is the GPIO-exposed one (SDA on header pin 3, SCL on pin 5).
+I2C_BUS_DEFAULT  = 1
 
-# Below this Z reading there's no finger on the panel. Sensible default for
-# a 3.3V XPT2046; tune via TOUCH_PRESSURE_THRESHOLD if the chip is twitchy.
-PRESSURE_THRESHOLD_DEFAULT = 150
+# FT6336U default 7-bit address. Some FocalTech variants land on 0x70 or
+# 0x15 — override via TOUCH_I2C_ADDR in .env if a scan shows otherwise.
+I2C_ADDR_DEFAULT = 0x38
 
-# Default calibration for a 3.2" MSP3218 in landscape rotation. Raw 12-bit
-# XPT2046 values corresponding to the edges of the visible area. AXES_SWAP
-# is true because the XPT2046's "X" axis maps to the display's "Y" axis
-# when the ILI9341 is rotated to landscape — universally true for this
-# panel family.
+# FT6336U register map (FocalTech FT6336U datasheet, "Touch data report" §7).
+#   0x02 — TD_STATUS: low nibble = current touch count (0–2 for this chip)
+#   0x03 — TOUCH1_XH: low 4 bits = X high byte, upper 2 bits = event flag
+#   0x04 — TOUCH1_XL: X low byte
+#   0x05 — TOUCH1_YH: low 4 bits = Y high byte, upper 4 bits = touch ID
+#   0x06 — TOUCH1_YL: Y low byte
+REG_TD_STATUS  = 0x02
+REG_TOUCH1_XH  = 0x03
+REG_BLOCK_LEN  = 5  # read 0x02..0x06 in one block to avoid mid-read race
+
+# The chip reports coordinates in its *configured* resolution range. On this
+# Haldzemo board it's wired for the panel's native portrait orientation
+# (320 wide × 480 tall). The LCD is mounted in landscape, so we swap X/Y
+# before hit-testing against the renderer's 480×320 coordinate space. If a
+# specific panel's chip is pre-configured landscape, flip TOUCH_SWAP_XY=0.
 DEFAULTS = {
-    "TOUCH_X_MIN":              "300",
-    "TOUCH_X_MAX":              "3900",
-    "TOUCH_Y_MIN":              "300",
-    "TOUCH_Y_MAX":              "3900",
-    "TOUCH_AXES_SWAP":          "1",
-    "TOUCH_X_INVERT":           "0",
-    "TOUCH_Y_INVERT":           "0",
-    "TOUCH_PRESSURE_THRESHOLD": str(PRESSURE_THRESHOLD_DEFAULT),
+    "TOUCH_I2C_BUS":  str(I2C_BUS_DEFAULT),
+    "TOUCH_I2C_ADDR": hex(I2C_ADDR_DEFAULT),
+    "TOUCH_SWAP_XY":  "1",
+    "TOUCH_INVERT_X": "0",
+    "TOUCH_INVERT_Y": "0",
 }
 
 
-# ---------------------------------------------------------------------------
-# Calibration loading
-# ---------------------------------------------------------------------------
-
-def load_cal():
+def load_cfg():
     """Read TOUCH_* keys from .env; fall back to DEFAULTS for missing ones."""
     env = config.load_env()
-    cal = {}
+    cfg = {}
     for k, default in DEFAULTS.items():
-        cal[k] = env.get(k, default).strip() or default
-    return cal
+        cfg[k] = env.get(k, default).strip() or default
+    return cfg
 
 
-def _cal_int(cal, key):
-    return int(cal[key])
+def _cfg_int(cfg, key):
+    v = cfg[key]
+    return int(v, 16) if v.startswith("0x") else int(v)
 
 
-def _cal_bool(cal, key):
-    return cal[key] == "1"
+def _cfg_bool(cfg, key):
+    return cfg[key] == "1"
 
 
 # ---------------------------------------------------------------------------
-# TouchReader — opens spidev, reads raw values, applies calibration
+# TouchReader — opens smbus, decodes the 5-byte block into a screen-pixel tap
 # ---------------------------------------------------------------------------
 
 class TouchReader:
-    """Manages the SPI handle and the per-iteration raw → pixel mapping."""
+    """Manages the I2C handle and per-poll register read.
 
-    def __init__(self, cal=None):
-        from spidev import SpiDev
-        self._spi = SpiDev()
-        self._spi.open(SPI_BUS, SPI_DEV)
-        # XPT2046 supports up to 2.5 MHz; 1 MHz is safer over long jumper
-        # leads and well under the chip's spec.
-        self._spi.max_speed_hz = 1_000_000
-        self._spi.mode = 0
-        self.cal = cal or load_cal()
+    Construct with the display's landscape dimensions (480, 320 for this
+    panel). Coordinates returned from `read_touch()` are in that space,
+    suitable for direct hit-testing against `display.HEATER_BUTTON_RECT`.
+    """
+
+    def __init__(self, cfg=None, screen_w=480, screen_h=320):
+        from smbus2 import SMBus
+        self.cfg = cfg or load_cfg()
+        self.screen_w = screen_w
+        self.screen_h = screen_h
+        self.addr = _cfg_int(self.cfg, "TOUCH_I2C_ADDR")
+        self._swap_xy = _cfg_bool(self.cfg, "TOUCH_SWAP_XY")
+        self._inv_x   = _cfg_bool(self.cfg, "TOUCH_INVERT_X")
+        self._inv_y   = _cfg_bool(self.cfg, "TOUCH_INVERT_Y")
+        self._bus = SMBus(_cfg_int(self.cfg, "TOUCH_I2C_BUS"))
 
     def close(self):
         try:
-            self._spi.close()
+            self._bus.close()
         except Exception:
             pass
 
@@ -103,68 +108,49 @@ class TouchReader:
     def __exit__(self, *_):
         self.close()
 
-    def _read_12bit(self, cmd_byte):
-        """One 3-byte SPI transaction → 12-bit value."""
-        result = self._spi.xfer2([cmd_byte, 0x00, 0x00])
-        # XPT2046 returns 12-bit value left-aligned across the next 2 bytes.
-        return ((result[1] << 8) | result[2]) >> 4
+    def _read_block(self):
+        """One 5-byte block read of the touch data registers."""
+        return self._bus.read_i2c_block_data(self.addr, REG_TD_STATUS, REG_BLOCK_LEN)
 
-    def read_raw_with_pressure(self):
-        """One sample: returns (x_raw, y_raw, z) or None if no finger down."""
-        z = self._read_12bit(_CMD_Z1)
-        threshold = _cal_int(self.cal, "TOUCH_PRESSURE_THRESHOLD")
-        if z < threshold:
+    def read_touch(self):
+        """Return (x, y) in screen-pixel coords, or None if no finger down.
+
+        Capacitive controllers can momentarily report 0 touches between
+        contacts; treat that as "no touch". The chip is debounced internally
+        — additional software debounce lives in display_loop.py.
+        """
+        try:
+            data = self._read_block()
+        except OSError:
+            # I2C bus glitch (NAK, bus busy, etc.) — caller treats this as
+            # "no touch this tick" and keeps polling. Persistent failures
+            # show up as repeated stderr lines from display_loop.py.
             return None
-        # Read X and Y while finger is still down. XPT2046 best practice is
-        # to do a quick X-Y burst rather than re-checking Z between them.
-        x = self._read_12bit(_CMD_X)
-        y = self._read_12bit(_CMD_Y)
-        return (x, y, z)
 
-    def read_averaged(self, n=4):
-        """Average N samples for noise filtering. None if < n/2 samples valid."""
-        samples = []
-        for _ in range(n):
-            r = self.read_raw_with_pressure()
-            if r is not None:
-                samples.append((r[0], r[1]))
-            time.sleep(0.001)
-        if len(samples) < max(1, n // 2):
+        n_touches = data[0] & 0x0F
+        if n_touches == 0:
             return None
-        avg_x = sum(s[0] for s in samples) // len(samples)
-        avg_y = sum(s[1] for s in samples) // len(samples)
-        return (avg_x, avg_y)
 
-    def to_pixels(self, raw_x, raw_y, width=320, height=240):
-        """Apply linear calibration: raw 12-bit → screen pixels."""
-        x_min = _cal_int(self.cal, "TOUCH_X_MIN")
-        x_max = _cal_int(self.cal, "TOUCH_X_MAX")
-        y_min = _cal_int(self.cal, "TOUCH_Y_MIN")
-        y_max = _cal_int(self.cal, "TOUCH_Y_MAX")
-        swap  = _cal_bool(self.cal, "TOUCH_AXES_SWAP")
-        x_inv = _cal_bool(self.cal, "TOUCH_X_INVERT")
-        y_inv = _cal_bool(self.cal, "TOUCH_Y_INVERT")
+        # Decode touch #1 (we only act on single touch). High-bit masks per
+        # datasheet — upper 2 bits of XH are the event flag, upper 4 bits
+        # of YH are the touch ID. Mask to get pure coordinate bits.
+        x_raw = ((data[1] & 0x0F) << 8) | data[2]
+        y_raw = ((data[3] & 0x0F) << 8) | data[4]
 
-        if swap:
-            raw_x, raw_y = raw_y, raw_x
-            x_min, x_max, y_min, y_max = y_min, y_max, x_min, x_max
+        # Chip reports portrait coords by default; LCD is landscape-mounted.
+        if self._swap_xy:
+            x_raw, y_raw = y_raw, x_raw
 
-        # Guard against divide-by-zero if the user mis-calibrated.
-        x_range = max(x_max - x_min, 1)
-        y_range = max(y_max - y_min, 1)
+        if self._inv_x:
+            x_raw = self.screen_w - 1 - x_raw
+        if self._inv_y:
+            y_raw = self.screen_h - 1 - y_raw
 
-        x_px = (raw_x - x_min) * width / x_range
-        y_px = (raw_y - y_min) * height / y_range
-
-        if x_inv:
-            x_px = width - x_px
-        if y_inv:
-            y_px = height - y_px
-
-        # Clamp into screen bounds — calibration drift can push slightly out.
-        x_px = max(0, min(width - 1, int(x_px)))
-        y_px = max(0, min(height - 1, int(y_px)))
-        return (x_px, y_px)
+        # Clamp into screen bounds — a tap just outside the active area
+        # can land slightly out-of-range; clamping keeps hit-test safe.
+        x = max(0, min(self.screen_w - 1, x_raw))
+        y = max(0, min(self.screen_h - 1, y_raw))
+        return (x, y)
 
 
 # ---------------------------------------------------------------------------
@@ -178,106 +164,59 @@ def point_in_rect(x, y, rect):
 
 
 # ---------------------------------------------------------------------------
-# Interactive corner calibration (called from `display_loop.py --calibrate`)
+# Bus scan — replaces the XPT2046 calibration walkthrough. With capacitive,
+# the only "configuration" needed is confirming the chip's I2C address and
+# that swap/invert match the physical mount.
 # ---------------------------------------------------------------------------
 
-def run_calibration():
+def run_scan():
+    """Probe the I2C bus and print a brief tap-monitor.
+
+    Replaces `--calibrate` from the old XPT2046 driver. Useful at install
+    time to:
+      1. Confirm the FT6336U appears at the expected address (0x38).
+      2. Watch live coordinates while tapping known points on the panel,
+         to decide whether TOUCH_SWAP_XY / TOUCH_INVERT_* need flipping.
     """
-    Walk through the 4 corners, capture averaged raw values, and print
-    suggested .env values.
-
-    Returns a dict matching DEFAULTS' keys, ready for the user to paste
-    into .env. Prompts go to stdout so the user can read them over ssh.
-    """
-    print("=== Touch calibration ===")
-    print("Tap each corner of the display when prompted. Hold for ~1 second.")
-    print()
-
-    corners = [
-        ("TOP-LEFT     (0, 0)",         "tl"),
-        ("TOP-RIGHT    (319, 0)",       "tr"),
-        ("BOTTOM-LEFT  (0, 239)",       "bl"),
-        ("BOTTOM-RIGHT (319, 239)",     "br"),
-    ]
-    samples = {}
-
-    with TouchReader(cal=DEFAULTS) as t:
-        # Override threshold during calibration — we want low-Z taps to count.
-        t.cal = dict(DEFAULTS, TOUCH_PRESSURE_THRESHOLD="50")
-
-        for prompt, key in corners:
-            print(f"  → Tap the {prompt} corner...")
-            # Wait for steady touch
-            started = None
-            captured = []
-            while True:
-                r = t.read_raw_with_pressure()
-                if r is None:
-                    if captured and len(captured) >= 8:
-                        break  # finger lifted, we have enough
-                    started = None
-                    captured = []
-                else:
-                    if started is None:
-                        started = time.time()
-                    captured.append((r[0], r[1]))
-                    if time.time() - started > 1.5 and len(captured) >= 16:
-                        break
-                time.sleep(0.02)
-            avg_x = sum(s[0] for s in captured) // len(captured)
-            avg_y = sum(s[1] for s in captured) // len(captured)
-            print(f"    raw=({avg_x}, {avg_y})  ({len(captured)} samples)")
-            samples[key] = (avg_x, avg_y)
-            # Wait for finger off the screen before next prompt
-            while t.read_raw_with_pressure() is not None:
-                time.sleep(0.05)
-            time.sleep(0.3)
-
-    # Derive calibration from the 4 corner samples. The raw axes are likely
-    # swapped from the display axes in landscape rotation (AXES_SWAP=1).
-    # tl, tr, bl, br — in display coords.
-    tl, tr, bl, br = samples["tl"], samples["tr"], samples["bl"], samples["br"]
-
-    # Find which raw axis varies most along the display's X (left↔right)
-    dx_along_x = abs(tr[0] - tl[0])
-    dy_along_x = abs(tr[1] - tl[1])
-    axes_swap = dy_along_x > dx_along_x
-
-    if axes_swap:
-        # Raw "X" is the display Y axis; raw "Y" is the display X axis.
-        x_min_raw = min(tl[1], bl[1])
-        x_max_raw = max(tr[1], br[1])
-        y_min_raw = min(tl[0], tr[0])
-        y_max_raw = max(bl[0], br[0])
-    else:
-        x_min_raw = min(tl[0], bl[0])
-        x_max_raw = max(tr[0], br[0])
-        y_min_raw = min(tl[1], tr[1])
-        y_max_raw = max(bl[1], br[1])
-
-    x_invert = (tr[1 if axes_swap else 0] < tl[1 if axes_swap else 0])
-    y_invert = (bl[0 if axes_swap else 1] < tl[0 if axes_swap else 1])
-
-    out = {
-        "TOUCH_X_MIN":              str(x_min_raw),
-        "TOUCH_X_MAX":              str(x_max_raw),
-        "TOUCH_Y_MIN":              str(y_min_raw),
-        "TOUCH_Y_MAX":              str(y_max_raw),
-        "TOUCH_AXES_SWAP":          "1" if axes_swap else "0",
-        "TOUCH_X_INVERT":           "1" if x_invert else "0",
-        "TOUCH_Y_INVERT":           "1" if y_invert else "0",
-        "TOUCH_PRESSURE_THRESHOLD": str(PRESSURE_THRESHOLD_DEFAULT),
-    }
+    cfg = load_cfg()
+    addr = _cfg_int(cfg, "TOUCH_I2C_ADDR")
+    bus_n = _cfg_int(cfg, "TOUCH_I2C_BUS")
+    print(f"=== I2C scan on bus {bus_n} ===")
+    from smbus2 import SMBus
+    with SMBus(bus_n) as bus:
+        found = []
+        for a in range(0x03, 0x78):
+            try:
+                bus.read_byte(a)
+                found.append(a)
+            except OSError:
+                continue
+        if not found:
+            print("  no devices responded — check SDA/SCL wiring, I2C enabled?")
+        else:
+            print(f"  responding: {', '.join(hex(a) for a in found)}")
+            if addr in found:
+                print(f"  ✓ FT6336U expected at {hex(addr)} — present")
+            else:
+                print(f"  ✗ FT6336U expected at {hex(addr)} — NOT present")
+                return
 
     print()
-    print("=== Suggested .env values ===")
-    print("Add these lines to /usr/lib/cgi-bin/remote-switch/.env:")
+    print("=== Live touch monitor (10s) — tap each corner ===")
+    with TouchReader(cfg=cfg) as t:
+        deadline = time.time() + 10.0
+        last_print = (None, None)
+        while time.time() < deadline:
+            pt = t.read_touch()
+            if pt is not None and pt != last_print:
+                print(f"  tap at x={pt[0]:>3} y={pt[1]:>3}")
+                last_print = pt
+            time.sleep(0.05)
     print()
-    for k, v in out.items():
-        print(f"  {k}={v}")
-    print()
-    return out
+    print("If corner-tap coordinates don't match the panel corners (0,0 → "
+          "479,319), flip TOUCH_SWAP_XY / TOUCH_INVERT_X / TOUCH_INVERT_Y "
+          "in .env and re-run.")
 
 
 if __name__ == "__main__":
-    run_calibration()
+    run_scan()

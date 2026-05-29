@@ -1,12 +1,17 @@
 """
-display.py — Renderer for the hangar Pi's 3.2" ILI9341 SPI dashboard.
+display.py — Renderer for the hangar Pi's 3.5" ST7796U IPS SPI dashboard.
 
-Produces a 320x240 PIL.Image from a state dict. Pushed to the physical display
+Produces a 480x320 PIL.Image from a state dict. Pushed to the physical display
 by display_loop.py (driven via luma.lcd over SPI). Distinct from switch.py's
 web UI — both surface the same underlying data, but the OLED is glance-only
 and emphasises different things: heater state + tappable toggle, multi-stage
 FlashAir status, schedule preview. Hangar temp / HVAC are demoted to a footer
 since they're redundant with the HVAC remote and wall unit.
+
+Native 480x320 (3:2) layout — replaces the previous 320x240 (4:3) build that
+ran on the MSP3218 ILI9341 panel. Positions and font sizes are tuned for the
+new panel; coordinate constants are NOT scaled from the old layout at render
+time, they're authored directly.
 
 State dict shape:
     {
@@ -45,8 +50,8 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-WIDTH  = 320
-HEIGHT = 240
+WIDTH  = 480
+HEIGHT = 320
 
 # Sync within this window renders as the bright "done" treatment; older becomes
 # a muted "idle" line. 10 min is long enough to catch the user's post-flight
@@ -214,9 +219,11 @@ def flashair_lines(fa):
             done_text = f"{n} {log_unit} + {shot_n} {shot_unit}"
         else:
             done_text = f"{n} {log_unit}"
-        # Age goes on the sub line — the headline ran past 320px once the
-        # breakdown carried both logs and shots ("done — 6 logs + 1 shot,
-        # 28s ago" clipped the trailing "o").
+        # Age goes on the sub line — the headline ran past available width on
+        # the old 320 panel once the breakdown carried both logs and shots
+        # ("done — 6 logs + 1 shot, 28s ago" clipped). 480 has room but we
+        # keep the split for consistency and to leave headroom for longer
+        # breakdowns in future contracts.
         ago = f"{fmt_age(age_since_sync)} ago" if age_since_sync is not None else None
         if age_since_sync is not None and age_since_sync < DONE_WINDOW_SECS:
             return (f"done — {done_text}",
@@ -296,13 +303,20 @@ def hvac_label(hvac):
 # ---------------------------------------------------------------------------
 
 # Geometry for the heater touch button — exposed so the touch handler in
-# display_loop.py can hit-test taps against the same rectangle.
-HEATER_BUTTON_RECT = (10, 22, 150, 92)  # (x1, y1, x2, y2)
+# display_loop.py can hit-test taps against the same rectangle. The
+# capacitive FT6336U returns coords in this same 480x320 space, so no
+# scaling is needed in display_loop.py.
+HEATER_BUTTON_RECT = (15, 30, 225, 122)  # (x1, y1, x2, y2) — 210×92 button
+
+# Filename truncation in the FlashAir "sub" line. f_mono_sm at 14pt is ~8.5px
+# per char; with 15px left padding and 15px right safety, we have ~450px of
+# usable width → ~52 chars. 50 leaves a margin for unusually wide glyphs.
+_SUB_MAX_CHARS = 50
 
 
 def render(state, flashair_ssid_pattern=None):
     """
-    Build the 320x240 dashboard image. `state` shape documented in module
+    Build the 480x320 dashboard image. `state` shape documented in module
     docstring. `flashair_ssid_pattern` is the .env-configured substring used
     to color SSIDs that match (e.g. "flashair") as active.
     """
@@ -311,20 +325,20 @@ def render(state, flashair_ssid_pattern=None):
     img = Image.new("RGB", (WIDTH, HEIGHT), COLOR["bg"])
     d = ImageDraw.Draw(img)
 
-    f_label      = _font(_SANS_REG, 12)
-    f_btn        = _font(_SANS_BOLD, 36)
-    f_sched      = _font(_SANS_REG, 14)
-    f_sched_sm   = _font(_SANS_REG, 11)
-    f_flash_head = _font(_SANS_BOLD, 18)
-    f_flash_ctx  = _font(_SANS_REG, 12)
-    f_mono_sm    = _font(_MONO, 11)
-    f_footer     = _font(_SANS_REG, 13)
-    f_tiny       = _font(_SANS_REG, 10)
+    f_label      = _font(_SANS_REG, 16)
+    f_btn        = _font(_SANS_BOLD, 48)
+    f_sched      = _font(_SANS_REG, 19)
+    f_sched_sm   = _font(_SANS_REG, 14)
+    f_flash_head = _font(_SANS_BOLD, 24)
+    f_flash_ctx  = _font(_SANS_REG, 16)
+    f_mono_sm    = _font(_MONO, 14)
+    f_footer     = _font(_SANS_REG, 17)
+    f_tiny       = _font(_SANS_REG, 13)
 
     now = state.get("now_epoch", 0)
 
     # ----- Heater section --------------------------------------------------
-    d.text((10, 6), "ENGINE HEATER", fill=COLOR["dim"], font=f_label)
+    d.text((15, 8), "ENGINE HEATER", fill=COLOR["dim"], font=f_label)
 
     heater = state.get("heater", {}) or {}
     h_on = bool(heater.get("on"))
@@ -342,19 +356,19 @@ def render(state, flashair_ssid_pattern=None):
            text, fill=btn_fg, font=f_btn, anchor="mm")
 
     next_evt = heater.get("next_event")
-    d.text((165, 22), "Schedule", fill=COLOR["dim"], font=f_label)
+    d.text((240, 30), "Schedule", fill=COLOR["dim"], font=f_label)
     if next_evt is None:
-        d.text((165, 40), "no events", fill=COLOR["dim"], font=f_sched)
+        d.text((240, 55), "no events", fill=COLOR["dim"], font=f_sched)
     else:
-        d.text((165, 40), f"→ {next_evt['label']}", fill=COLOR["sched"], font=f_sched)
+        d.text((240, 55), f"→ {next_evt['label']}", fill=COLOR["sched"], font=f_sched)
         until = fmt_until(next_evt["epoch"] - now)
         if until:
-            d.text((165, 60), until, fill=COLOR["dim"], font=f_sched_sm)
+            d.text((240, 82), until, fill=COLOR["dim"], font=f_sched_sm)
 
-    d.line([(10, 105), (310, 105)], fill=COLOR["rule"], width=1)
+    d.line([(15, 140), (WIDTH - 15, 140)], fill=COLOR["rule"], width=1)
 
     # ----- FlashAir section ------------------------------------------------
-    d.text((10, 113), "FLASHAIR", fill=COLOR["dim"], font=f_label)
+    d.text((15, 150), "FLASHAIR", fill=COLOR["dim"], font=f_label)
 
     fa = state.get("flashair")
     if fa is not None:
@@ -364,8 +378,8 @@ def render(state, flashair_ssid_pattern=None):
         if "current_ssid" in fa:
             ssid = fa["current_ssid"]
             ssid_label = f'on "{ssid}"' if ssid else "no wifi"
-            d.text((68, 113), "·", fill=COLOR["very_dim"], font=f_label)
-            d.text((78, 113), ssid_label,
+            d.text((100, 150), "·", fill=COLOR["very_dim"], font=f_label)
+            d.text((115, 150), ssid_label,
                    fill=ssid_color(ssid, flashair_ssid_pattern), font=f_label)
 
         age = now - fa.get("epoch", now)
@@ -373,45 +387,47 @@ def render(state, flashair_ssid_pattern=None):
         fresh_color = COLOR["flash_stale"] if age > STALE_AFTER_SECS else COLOR["very_dim"]
         bbox = d.textbbox((0, 0), fresh_text, font=f_tiny)
         fw = bbox[2] - bbox[0]
-        d.text((WIDTH - 10 - fw, 114), fresh_text, fill=fresh_color, font=f_tiny)
+        d.text((WIDTH - 15 - fw, 152), fresh_text, fill=fresh_color, font=f_tiny)
 
         headline, hcolor, sub, context, has_bar = flashair_lines(fa)
-        d.text((10, 130), headline, fill=hcolor, font=f_flash_head)
-        # When context is present, shift the filename + bar up/down to fit
+        d.text((15, 174), headline, fill=hcolor, font=f_flash_head)
+        # When context is present, shift the filename + bar down to fit
         # the extra line. Otherwise keep the original two-row layout.
         if context:
-            sub_y, context_y, bar_y = 152, 168, 184
+            sub_y, context_y, bar_y = 204, 224, 246
         else:
-            sub_y, context_y, bar_y = 158, None, 178
+            sub_y, context_y, bar_y = 210, None, 238
 
         if sub:
-            max_chars = 38
-            sub_display = sub if len(sub) <= max_chars else sub[: max_chars - 1] + "…"
-            d.text((10, sub_y), sub_display, fill=COLOR["dim"], font=f_mono_sm)
+            sub_display = sub if len(sub) <= _SUB_MAX_CHARS else sub[: _SUB_MAX_CHARS - 1] + "…"
+            d.text((15, sub_y), sub_display, fill=COLOR["dim"], font=f_mono_sm)
         if context:
-            d.text((10, context_y), context,
+            d.text((15, context_y), context,
                    fill=COLOR["flash_context"], font=f_flash_ctx)
 
         if has_bar:
             fd = fa.get("files_done", 0)
             ft = max(fa.get("files_total", 1), 1)
             frac = max(0.0, min(1.0, fd / ft))
-            d.rectangle([(10, bar_y), (310, bar_y + 10)], outline=COLOR["rule"], width=1)
-            d.rectangle([(11, bar_y + 1), (11 + int(298 * frac), bar_y + 9)],
+            bar_right = WIDTH - 15
+            bar_w = bar_right - 15
+            d.rectangle([(15, bar_y), (bar_right, bar_y + 12)],
+                        outline=COLOR["rule"], width=1)
+            d.rectangle([(16, bar_y + 1), (16 + int((bar_w - 2) * frac), bar_y + 11)],
                         fill=COLOR["flash_active"])
     else:
-        d.text((10, 130), "not configured", fill=COLOR["flash_idle"], font=f_flash_head)
+        d.text((15, 174), "not configured", fill=COLOR["flash_idle"], font=f_flash_head)
 
-    d.line([(10, 200), (310, 200)], fill=COLOR["rule"], width=1)
+    d.line([(15, 268), (WIDTH - 15, 268)], fill=COLOR["rule"], width=1)
 
     # ----- HVAC + hangar temp footer --------------------------------------
     label, color = hvac_label(state.get("hvac"))
     if label is not None:
-        d.text((10, 213), "HVAC", fill=COLOR["dim"], font=f_label)
-        d.text((50, 211), label, fill=color, font=f_footer)
+        d.text((15, 286), "HVAC", fill=COLOR["dim"], font=f_label)
+        d.text((65, 283), label, fill=color, font=f_footer)
     hangar_f = state.get("hangar_f")
     if hangar_f is not None:
-        d.text((230, 213), f"Hangar {hangar_f:.0f}°F", fill=COLOR["dim"], font=f_footer)
+        d.text((345, 286), f"Hangar {hangar_f:.0f}°F", fill=COLOR["dim"], font=f_footer)
 
     return img
 
@@ -488,6 +504,7 @@ if __name__ == "__main__":
     out_dir = os.environ.get("DISPLAY_PREVIEW_DIR", "/tmp")
     for name, st in states.items():
         img = render(st, flashair_ssid_pattern="flashair")
-        path = f"{out_dir}/display-preview-{name}.png"
-        img.resize((WIDTH * 2, HEIGHT * 2)).save(path)
-        print(path)
+        # Doubled-up preview so design review at native screen res isn't
+        # squinting at a 480px image at 2x retina scaling.
+        img.resize((WIDTH * 2, HEIGHT * 2)).save(f"{out_dir}/display-preview-{name}.png")
+        print(f"{out_dir}/display-preview-{name}.png")

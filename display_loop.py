@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-display_loop.py — Drives the hangar Pi's 3.2" ILI9341 SPI dashboard.
+display_loop.py — Drives the hangar Pi's 3.5" ST7796U SPI dashboard.
 
 Reads display_state.get_state() every UPDATE_INTERVAL_SECS, renders it via
-display.render(), and pushes the result to the ILI9341 panel via luma.lcd
-on SPI0. Polls the XPT2046 touch chip every TOUCH_POLL_INTERVAL_SECS; a tap
-within display.HEATER_BUTTON_RECT toggles GPIO 17 (the engine-block heater).
+display.render(), and pushes the result to the ST7796U panel via luma.lcd
+on SPI0. Polls the FT6336U capacitive touch chip over I2C every
+TOUCH_POLL_INTERVAL_SECS; a tap within display.HEATER_BUTTON_RECT toggles
+GPIO 17 (the engine-block heater).
 
 Runs under systemd (see display.service).
 
@@ -13,10 +14,11 @@ CLI flags:
     --once          render one frame, push, exit. Useful for spot checks.
     --dry-run       skip SPI init; write the render to /tmp/display-current.png
                     each iteration. Set if DISPLAY_DRY_RUN=1 is in env too.
-    --calibrate     run the 4-corner touch calibration walkthrough, print
-                    suggested TOUCH_* values for .env, then exit.
     --no-touch      skip the touch panel entirely (in case the chip isn't
                     wired but you want to drive the display).
+    --scan          probe the I2C bus and print a 10s tap monitor. Replaces
+                    the old XPT2046 --calibrate flow — capacitive controllers
+                    report pre-calibrated pixel coords directly.
 """
 
 import os
@@ -40,11 +42,13 @@ TOUCH_POLL_INTERVAL_SECS  = 0.05   # 20 Hz touch polling between display refresh
 TOUCH_DEBOUNCE_SECS      = 1.0     # ignore taps within this window of the last one
 DRY_RUN_OUT              = Path("/tmp/display-current.png")
 
-# ILI9341 control pins. Match display.py's pin map and the wiring docs.
-GPIO_DC  = 24
-GPIO_RST = 25
+# ST7796U control pins on the Haldzemo 3.5" board. The board's silkscreen
+# names LCD_RS for what other panels call DC (data/command select) — same
+# function, different label.
+GPIO_DC  = 24   # Display pin 5 (LCD_RS)
+GPIO_RST = 25   # Display pin 4 (LCD_RST)
 SPI_PORT = 0
-SPI_DEV  = 0   # SPI0 CE0 — the display's chip select (BCM 8)
+SPI_DEV  = 0    # SPI0 CE0 — display chip select (BCM 8, Display pin 3 / LCD_CS)
 
 
 _stop = False
@@ -66,24 +70,43 @@ def _touch_enabled():
 
 
 def _open_device():
-    """Open the ILI9341 over SPI. Lazy import so the module works without luma installed."""
+    """Open the ST7796U over SPI via luma.lcd's ili9488 driver.
+
+    luma.lcd has no native ST7796 class as of 2.x. ILI9488 is the closest
+    register-compatible driver: same 320x480 framebuffer, same 18bpp SPI
+    write protocol, near-identical init sequence — community confirmation
+    that this pairing works in practice across several MSP3520-style boards
+    (Haldzemo / aceirmc / HiLetGo variants). If first power-on shows blank
+    screen, garbled colors, or repeated `push failed`, see
+    docs/ips-display-upgrade.html → "Troubleshooting" → "Display backlights but stays blank".
+
+    Lazy import so the module loads without luma installed (e.g. macOS dev).
+    """
     from luma.core.interface.serial import spi
-    from luma.lcd.device import ili9341
+    from luma.lcd.device import ili9488
 
     serial = spi(port=SPI_PORT, device=SPI_DEV, gpio_DC=GPIO_DC, gpio_RST=GPIO_RST)
-    # The ili9341 chip is natively portrait (240×320). luma.lcd swaps
-    # width/height on odd rotate values, so rotate=1 expects a 240×320
-    # image — but our renderer produces 320×240 landscape. Use rotate=0
-    # (no swap) so the device matches our image dimensions. If the panel
-    # is physically mounted upside-down, switch to rotate=2 (180° flip).
-    return ili9341(serial, rotate=0, width=display.WIDTH, height=display.HEIGHT)
+    # ST7796U native frame is 320 wide × 480 tall (portrait). MADCTL bits
+    # configured by luma's ili9488 driver rotate to landscape internally.
+    # We hand it our 480×320 image with rotate=0; if it shows up 90° wrong
+    # on first boot, try rotate=1. Physical-upside-down panels use rotate=2.
+    device = ili9488(serial, rotate=0, width=display.WIDTH, height=display.HEIGHT)
+    # IPS variant of the ST7796U needs display inversion enabled to render
+    # colors correctly — luma's ili9488 init sequence is tuned for the TN
+    # variant and sends INVOFF (0x20), which on this IPS panel produces
+    # 1's-complement-inverted colors (red → cyan, near-black → near-white).
+    # Sending INVON (0x21) after init flips the panel's inversion bit
+    # without re-running the rest of the init. Verified 2026-05-29 on the
+    # Haldzemo 3.5" 480×320 IPS board.
+    device.command(0x21)
+    return device
 
 
 def _open_touch():
-    """Open the XPT2046 over SPI0 CE1. Returns None on import / open failure."""
+    """Open the FT6336U over I2C bus 1. Returns None on import / open failure."""
     try:
         import touch  # noqa: E402 — local module
-        return touch.TouchReader()
+        return touch.TouchReader(screen_w=display.WIDTH, screen_h=display.HEIGHT)
     except Exception as e:
         sys.stderr.write(f"display: touch init failed: {e} (continuing without touch)\n")
         return None
@@ -139,25 +162,27 @@ def _toggle_heater():
 
 def _poll_touch(touch_reader):
     """One tick of touch polling. Triggers heater toggle if a debounced
-    tap lands inside HEATER_BUTTON_RECT. Cheap to call at 20 Hz — a no-touch
-    read is one SPI transaction for the Z value."""
+    tap lands inside HEATER_BUTTON_RECT.
+
+    Capacitive controllers do their own debouncing and only report active
+    contacts, so the per-poll cost is one I2C block-read returning quickly
+    when no finger is on the panel. Coordinates come back pre-calibrated
+    in 480×320 screen space — direct hit-test against HEATER_BUTTON_RECT,
+    no scaling needed.
+    """
     global _last_tap_epoch
     try:
-        raw = touch_reader.read_raw_with_pressure()
+        pt = touch_reader.read_touch()
     except Exception as e:
         sys.stderr.write(f"display: touch read failed: {e}\n")
         return
-    if raw is None:
+    if pt is None:
         return
     now = time.time()
     if now - _last_tap_epoch < TOUCH_DEBOUNCE_SECS:
         return  # still in cooldown from previous tap
 
-    # Re-read averaged to filter the wild first sample of a press
-    avg = touch_reader.read_averaged(n=4)
-    if avg is None:
-        return
-    x_px, y_px = touch_reader.to_pixels(*avg)
+    x_px, y_px = pt
     import touch  # local module; cheap re-import is cached
     if touch.point_in_rect(x_px, y_px, display.HEATER_BUTTON_RECT):
         global _redraw_now
@@ -196,22 +221,22 @@ def _sleep_with_touch(secs, touch_reader, fa_mtime_baseline):
         time.sleep(TOUCH_POLL_INTERVAL_SECS)
 
 
-def _run_calibration():
-    """Delegate to touch.run_calibration()."""
+def _run_scan():
+    """Delegate to touch.run_scan() — I2C scan + 10s tap monitor."""
     try:
         import touch
     except ImportError as e:
-        sys.stderr.write(f"calibration: touch module unavailable: {e}\n")
+        sys.stderr.write(f"scan: touch module unavailable: {e}\n")
         sys.exit(1)
-    touch.run_calibration()
+    touch.run_scan()
 
 
 def main():
     signal.signal(signal.SIGTERM, _on_signal)
     signal.signal(signal.SIGINT, _on_signal)
 
-    if "--calibrate" in sys.argv:
-        _run_calibration()
+    if "--scan" in sys.argv:
+        _run_scan()
         return
 
     device = None if _is_dry_run() else _open_device()

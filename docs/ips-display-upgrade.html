@@ -606,9 +606,14 @@ sudo systemctl start display</code></pre>
       <td>Change <code>rotate=0</code> to <code>1</code>, <code>2</code>, or <code>3</code> in <code>display_loop.py:_open_device()</code>.</td>
     </tr>
     <tr>
-      <td>Colours inverted (whites are blue)</td>
-      <td>Panel is BGR, code expects RGB</td>
-      <td>Add <code>bgr=True</code> to the <code>ili9488(...)</code> constructor call.</td>
+      <td>Colours look 1's-complement-inverted (dark backgrounds appear pale, reds appear teal/cyan, whites appear dark)</td>
+      <td>IPS panel needs <code>INVON</code> in init; luma.lcd's ili9488 driver sends <code>INVOFF</code> (correct for TN, wrong for IPS)</td>
+      <td>Already baked into <code>_open_device()</code> — sends <code>device.command(0x21)</code> after init. If you're on a TN variant, remove that line. Verified on Haldzemo IPS 2026-05-29.</td>
+    </tr>
+    <tr>
+      <td>Reds appear blue and vice versa, but whites are still white (true R↔B swap, not inversion)</td>
+      <td>Panel byte order is BGR, code expects RGB</td>
+      <td>Add <code>bgr=True</code> to the <code>ili9488(...)</code> constructor call. Distinct from the INVON case above — that one shifts <em>all</em> channels, this only swaps R and B.</td>
     </tr>
     <tr>
       <td>Service log: <code>push failed: ImportError</code></td>

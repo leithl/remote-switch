@@ -90,7 +90,16 @@ def _open_device():
     # configured by luma's ili9488 driver rotate to landscape internally.
     # We hand it our 480×320 image with rotate=0; if it shows up 90° wrong
     # on first boot, try rotate=1. Physical-upside-down panels use rotate=2.
-    return ili9488(serial, rotate=0, width=display.WIDTH, height=display.HEIGHT)
+    device = ili9488(serial, rotate=0, width=display.WIDTH, height=display.HEIGHT)
+    # IPS variant of the ST7796U needs display inversion enabled to render
+    # colors correctly — luma's ili9488 init sequence is tuned for the TN
+    # variant and sends INVOFF (0x20), which on this IPS panel produces
+    # 1's-complement-inverted colors (red → cyan, near-black → near-white).
+    # Sending INVON (0x21) after init flips the panel's inversion bit
+    # without re-running the rest of the init. Verified 2026-05-29 on the
+    # Haldzemo 3.5" 480×320 IPS board.
+    device.command(0x21)
+    return device
 
 
 def _open_touch():

@@ -281,6 +281,37 @@ def ssid_color(ssid, flashair_pattern=None):
     return COLOR["ssid_hangar"]
 
 
+# Stages where the daemon is working the FlashAir card directly. During these
+# the WiFi indicator reads "connected flashair" regardless of a transient None
+# SSID (a re-association blip), rather than flashing a misleading "no wifi".
+_ON_CARD_STAGES = {"checking_logs", "downloading_logs", "downloading_shots"}
+
+
+def _ssid_indicator(ssid, stage, flashair_pattern=None):
+    """Return (label, color) for the WiFi line in the FlashAir header.
+
+    The raw card SSID is noise — the user already configured it — and the bare
+    None the radio reports mid-association rendered as an alarming "no wifi".
+    So collapse the card's networks to plain status text:
+
+    - on the card (SSID matches the pattern, or mid-transfer from it)
+        → "connected flashair"
+    - hopping onto the card (scanning with the radio between networks)
+        → "connecting flashair"
+    - otherwise → the home SSID ('on "Hangar-WiFi"'), or "no wifi" if the
+        radio is genuinely down outside a card session.
+    """
+    on_card = bool(
+        flashair_pattern and ssid and flashair_pattern.lower() in ssid.lower()
+    )
+    if on_card or stage in _ON_CARD_STAGES:
+        return ("connected flashair", COLOR["ssid_flashair"])
+    if stage == "scanning" and not ssid:
+        return ("connecting flashair", COLOR["ssid_flashair"])
+    label = f'on "{ssid}"' if ssid else "no wifi"
+    return (label, ssid_color(ssid, flashair_pattern))
+
+
 def hvac_label(hvac):
     """Returns (label, color) for the HVAC footer, or (None, None) if HVAC is off / not configured."""
     if hvac is None:
@@ -376,11 +407,11 @@ def render(state, flashair_ssid_pattern=None):
         # Absent key (v0 contract) → suppress indicator. None value (v1, wifi
         # actually down) → "no wifi" in red.
         if "current_ssid" in fa:
-            ssid = fa["current_ssid"]
-            ssid_label = f'on "{ssid}"' if ssid else "no wifi"
+            ssid_label, ssid_lbl_color = _ssid_indicator(
+                fa["current_ssid"], fa.get("stage", "idle"),
+                flashair_ssid_pattern)
             d.text((100, 150), "·", fill=COLOR["very_dim"], font=f_label)
-            d.text((115, 150), ssid_label,
-                   fill=ssid_color(ssid, flashair_ssid_pattern), font=f_label)
+            d.text((115, 150), ssid_label, fill=ssid_lbl_color, font=f_label)
 
         age = now - fa.get("epoch", now)
         fresh_text = f"updated {fmt_age(age)} ago"
@@ -479,6 +510,8 @@ if __name__ == "__main__":
         "idle_done":           {**BASE, "flashair": fa_state(
             "idle", last_sync_epoch=NOW - 90, last_sync_files_n=7,
             last_shot_sync_epoch=NOW - 80, last_shot_sync_files_n=5)},
+        "connecting":          {**BASE, "flashair": fa_state(
+            "scanning", current_ssid=None)},
         "downloading_logs":    {**BASE, "flashair": fa_state(
             "downloading_logs", current_ssid="FlashAir-Card",
             files_done=3, files_total=7,

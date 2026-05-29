@@ -309,6 +309,8 @@ If someone uses the physical IR remote while you're away, the dongle's reported 
 
 The 3.5" IPS dashboard runs 24/7. To save LED-backlight hours (and heat), an optional **DFRobot C4001 / SEN0610** 24 GHz mmWave sensor turns the backlight off when the hangar's empty and back on the moment it senses motion. IPS panels have no burn-in, so this is purely backlight longevity. Off by default — the display behaves normally until you enable it.
 
+> **Step-by-step wiring + install checklist:** [`docs/motion-wake-install.html`](docs/motion-wake-install.html) (open in a browser — interactive, progress saved locally).
+
 ### Hardware
 - **C4001 mmWave sensor** (~$13, [DFRobot SEN0610](https://www.dfrobot.com/product-2795.html)): 8 m presence / 12 m motion, 100°×80° beam, I²C + UART, −40…85 °C. The 12 m variant — *not* the 25 m SEN0609.
 - Wire it to the **same I²C bus the touch chip uses** (no extra GPIO): `VCC→3.3V, GND→GND, SDA→GPIO2, SCL→GPIO3`. Its address `0x2A` doesn't clash with the touch chip's `0x38`.

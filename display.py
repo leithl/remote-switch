@@ -232,6 +232,17 @@ def flashair_lines(fa):
                 COLOR["flash_idle"], ago, None, False)
     if stage == "scanning":
         return ("scanning card", COLOR["flash_active"], None, None, False)
+    if stage == "checking_logs":
+        # The ~90s stability poll on the newest CSV — nothing downloads yet
+        # (confirming the avionics finished writing it). Distinct from
+        # "downloading 0 of N" so a single-log sync doesn't look hung. No
+        # progress bar: the wait is time-based, not per-file; the heartbeat
+        # keeps "updated Xs ago" fresh as the liveness signal.
+        shot_word = "shot" if session_shots_n == 1 else "shots"
+        ctx = f"{session_shots_n} {shot_word} queued" if session_shots_n else None
+        log_word = "log" if ft == 1 else "logs"
+        head = f"checking {ft} {log_word}…" if ft else "checking log…"
+        return (head, COLOR["flash_active"], "making sure it's fully written", ctx, False)
     if stage == "downloading_logs":
         shot_word = "shot" if session_shots_n == 1 else "shots"
         ctx = f"{session_shots_n} {shot_word} queued" if session_shots_n else None
@@ -512,6 +523,11 @@ if __name__ == "__main__":
             last_shot_sync_epoch=NOW - 80, last_shot_sync_files_n=5)},
         "connecting":          {**BASE, "flashair": fa_state(
             "scanning", current_ssid=None)},
+        "checking_logs":       {**BASE, "flashair": fa_state(
+            "checking_logs", current_ssid="FlashAir-Card",
+            files_done=0, files_total=1,
+            session_csv_n=1, session_shots_n=8,
+            current_file=None)},
         "downloading_logs":    {**BASE, "flashair": fa_state(
             "downloading_logs", current_ssid="FlashAir-Card",
             files_done=3, files_total=7,

@@ -259,7 +259,7 @@
 </div>
 <div class="step">
   <input type="checkbox" id="p3">
-  <div class="step-body"><label for="p3"><strong>Y-pigtail or breadboard rail</strong> for the 5V split (Pi pin 2 needs to feed both VCC and LED). A male-male jumper to bridge VCC↔LED on the display side also works.</label></div>
+  <div class="step-body"><label for="p3"><strong>Two splitter points</strong>: one for Pi pin 2 (5V) → VCC + LED, and one for Pi pin 17 (3V3) → DS18B20 temp probe + CTP_RST. Y-pigtails, breadboard rails, or male-male bridge jumpers on the display side all work — pick whichever you have spares of.</label></div>
 </div>
 <div class="step">
   <input type="checkbox" id="p4">
@@ -394,12 +394,12 @@ sudo systemctl poweroff</code></pre>Wait for the green ACT LED to stop blinking,
       <td>5 (BCM 3 / SCL1) <span class="badge added">new wire</span></td>
       <td>I2C clock for the touch chip. Pi's primary I2C bus.</td>
     </tr>
-    <tr class="removed">
+    <tr class="move">
       <td>11</td>
       <td>CTP_RST <em>(was T_CS on old)</em></td>
       <td>26 (CE1)</td>
-      <td>— <span class="badge removed">pull old wire</span></td>
-      <td><strong>Old board had T_CS here, wired to Pi pin 26 for the XPT2046.</strong> New board's CTP_RST at the same header position stays unconnected (the FT6336U self-inits). So the existing wire that runs from this position to Pi 26 should be pulled at both ends, and Pi pin 26 stays empty.</td>
+      <td>17 (3V3) <span class="badge move">re-route to 3V3 pull-up</span></td>
+      <td><strong>Required wire — chip stays in reset without it.</strong> Old board had T_CS here, wired to Pi pin 26 for the XPT2046. New board needs CTP_RST tied high; the FT6336U's internal pull-up isn't strong enough on this board family. Verified 2026-05-29: chip was silent on <code>i2cdetect</code> until pin 11 was tied to 3V3. Pull the existing wire from Pi pin 26 and re-land it on Pi pin 17 (3V3).</td>
     </tr>
     <tr class="added">
       <td>12</td>
@@ -430,8 +430,8 @@ sudo systemctl poweroff</code></pre>Wait for the green ACT LED to stop blinking,
   <thead><tr><th>Pi pin</th><th>Action</th><th>Was / is</th></tr></thead>
   <tbody>
     <tr><td><code>2 (5V)</code></td><td><span class="badge added">2 wires added</span></td><td>Was empty. Now feeds both VCC (display pin 1) and LED (display pin 8).</td></tr>
-    <tr><td><code>17 (3V3)</code></td><td><span class="badge removed">2 wires removed</span></td><td>Was VCC + LED on the old display. Now only feeds the DS18B20 temp probe.</td></tr>
-    <tr><td><code>26 (CE1)</code></td><td><span class="badge removed">1 wire removed</span></td><td>Was the XPT2046's T_CS. FT6336U doesn't use SPI; pin freed.</td></tr>
+    <tr><td><code>17 (3V3)</code></td><td><span class="badge removed">2 wires removed</span> <span class="badge added">1 added</span></td><td>Was VCC + LED on the old display. Now hosts the DS18B20 temp probe (unchanged) plus the new CTP_RST pull-up wire (display pin 11).</td></tr>
+    <tr><td><code>26 (CE1)</code></td><td><span class="badge removed">1 wire removed</span></td><td>Was the XPT2046's T_CS. FT6336U doesn't use SPI; pin freed. The wire that used to live here re-routes to Pi pin 17 (CTP_RST).</td></tr>
     <tr><td><code>3 (SDA1)</code></td><td><span class="badge added">1 wire added</span></td><td>I2C data to CTP_SDA (display pin 12).</td></tr>
     <tr><td><code>5 (SCL1)</code></td><td><span class="badge added">1 wire added</span></td><td>I2C clock to CTP_SCL (display pin 10).</td></tr>
   </tbody>
@@ -441,14 +441,17 @@ sudo systemctl poweroff</code></pre>Wait for the green ACT LED to stop blinking,
   <strong>5V splitter pattern:</strong> Pi pin 2 needs to feed two display pins (VCC + LED). Cleanest: one F-F jumper from Pi pin 2 → display VCC, then a short male-male jumper from VCC over to LED on the display side. A breadboard rail or Y-pigtail off pin 2 also works.
 </div>
 
+<div class="note danger">
+  <strong>CTP_RST is required on this board family</strong> — chip stays in reset without it. The FT6336U's internal pull-up isn't strong enough on this PCB layout; verified on 2026-05-29 install (chip silent on <code>i2cdetect</code> until pin 11 was tied to 3V3). Wire display pin 11 → Pi pin 17 (the same 3V3 rail that hosts the DS18B20 temp probe).
+</div>
 <div class="note tip">
-  <strong>Don't worry about CTP_INT / CTP_RST.</strong> Both are designed to float — the chip self-initialises and we poll for touches. Only wire CTP_RST if the very first power-on shows the chip not responding at all (extremely rare with these boards).
+  <strong>CTP_INT is genuinely optional.</strong> We poll the chip at 20 Hz over I2C — no interrupt handler needed. Leave display pin 13 unconnected.
 </div>
 
 <h3>Wire verification</h3>
 <div class="step">
   <input type="checkbox" id="w1">
-  <div class="step-body"><label for="w1">All 11 wires connected to the display side, double-checked against silkscreen labels.</label></div>
+  <div class="step-body"><label for="w1">All 12 wires connected to the display side, double-checked against silkscreen labels.</label></div>
 </div>
 <div class="step">
   <input type="checkbox" id="w2">
@@ -456,11 +459,11 @@ sudo systemctl poweroff</code></pre>Wait for the green ACT LED to stop blinking,
 </div>
 <div class="step">
   <input type="checkbox" id="w3">
-  <div class="step-body"><label for="w3">Pi pin 26 is empty (old T_CS wire pulled).</label></div>
+  <div class="step-body"><label for="w3">Pi pin 26 is empty (old T_CS wire was re-routed to Pi pin 17).</label></div>
 </div>
 <div class="step">
   <input type="checkbox" id="w4">
-  <div class="step-body"><label for="w4">Pi pin 17 still has the DS18B20 temp probe (it shares pin 1 in the old layout — verify it's still seated, didn't come out with the VCC/LED wires).</label></div>
+  <div class="step-body"><label for="w4">Pi pin 17 (3V3) has <strong>two</strong> wires on it: the DS18B20 temp probe (was on pin 1 in the old layout — verify it's still seated, didn't come out with the VCC/LED wires) AND the new CTP_RST wire (display pin 11). Use a splice / Y-pigtail or breadboard rail if the dupont housing can't take two stacks.</label></div>
 </div>
 <div class="step">
   <input type="checkbox" id="w5">
@@ -536,13 +539,16 @@ sudo python3 /usr/lib/cgi-bin/remote-switch/display_loop.py --scan</code></pre>E
   <div class="step-body"><label for="ts3">If the chip responds but corner taps are flipped/mirrored, add overrides to <code>.env</code> per the table below, then restart the service. Restart and re-run <code>--scan</code> to confirm.</label></div>
 </div>
 
+<p>Defaults (verified on the Haldzemo board 2026-05-29): <code>SWAP_XY=1</code>, <code>INVERT_X=0</code>, <code>INVERT_Y=1</code>. If a different chip pre-config ships and the corner taps don't land at <code>(0, 0)</code> for TL, the table below maps the symptom to the override:</p>
+
 <table>
   <thead><tr><th>Symptom (top-left tap reports …)</th><th>Fix in <code>.env</code></th></tr></thead>
   <tbody>
-    <tr><td><code>x=475 y=313</code> (bottom-right)</td><td><code>TOUCH_INVERT_X=1</code> AND <code>TOUCH_INVERT_Y=1</code></td></tr>
-    <tr><td><code>x=475 y=6</code> (top-right)</td><td><code>TOUCH_INVERT_X=1</code></td></tr>
-    <tr><td><code>x=8 y=313</code> (bottom-left)</td><td><code>TOUCH_INVERT_Y=1</code></td></tr>
-    <tr><td>Y values tiny when tapping top↔bottom; X values big when tapping left↔right</td><td><code>TOUCH_SWAP_XY=0</code> (off)</td></tr>
+    <tr><td><code>x≈0 y≈0</code> (top-left)</td><td>defaults are correct — no override needed</td></tr>
+    <tr><td><code>x≈0 y≈319</code> (bottom-left)</td><td><code>TOUCH_INVERT_Y=0</code></td></tr>
+    <tr><td><code>x≈479 y≈0</code> (top-right)</td><td><code>TOUCH_INVERT_X=1</code></td></tr>
+    <tr><td><code>x≈479 y≈319</code> (bottom-right)</td><td><code>TOUCH_INVERT_X=1</code> AND <code>TOUCH_INVERT_Y=0</code></td></tr>
+    <tr><td>Y values tiny when tapping top↔bottom; X values big when tapping left↔right (axes confused)</td><td><code>TOUCH_SWAP_XY=0</code></td></tr>
   </tbody>
 </table>
 
@@ -610,9 +616,19 @@ sudo systemctl start display</code></pre>
       <td><code>sudo pip install --upgrade luma.lcd --break-system-packages</code></td>
     </tr>
     <tr>
-      <td>I2C scan finds no devices</td>
-      <td>I2C not enabled, or wires on the wrong pads</td>
-      <td><code>grep i2c /boot/firmware/config.txt</code> should show <code>dtparam=i2c_arm=on</code>. <code>ls /dev/i2c-*</code> should show <code>/dev/i2c-1</code>. Verify SDA=Pi 3, SCL=Pi 5 on the display side too.</td>
+      <td>I2C scan finds no devices, but <code>/dev/i2c-1</code> exists and <code>raspi-gpio get 2,3</code> shows ALT0 (SDA1/SCL1)</td>
+      <td>Chip held in reset — CTP_RST not pulled high</td>
+      <td>Wire display pin 11 (CTP_RST) → Pi pin 17 (3V3). This was the actual fix on the install; the FT6336U's internal pull-up isn't strong enough on this board family.</td>
+    </tr>
+    <tr>
+      <td>I2C scan finds no devices, <code>/dev/i2c-1</code> missing</td>
+      <td>I2C not enabled</td>
+      <td><code>sudo raspi-config nonint do_i2c 0 && sudo reboot</code>. Confirm with <code>grep i2c /boot/firmware/config.txt</code> (should show <code>dtparam=i2c_arm=on</code>).</td>
+    </tr>
+    <tr>
+      <td>I2C scan finds no devices, all pre-requisites checked</td>
+      <td>SDA/SCL wires on the wrong pads</td>
+      <td>SDA = Pi 3 → display pin 12. SCL = Pi 5 → display pin 10. Pins 11 + 13 in between are CTP_RST + CTP_INT — easy to count off by one.</td>
     </tr>
     <tr>
       <td>Service log: <code>touch init failed: [Errno 2]</code></td>

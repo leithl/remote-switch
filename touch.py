@@ -44,14 +44,21 @@ REG_BLOCK_LEN  = 5  # read 0x02..0x06 in one block to avoid mid-read race
 # The chip reports coordinates in its *configured* resolution range. On this
 # Haldzemo board it's wired for the panel's native portrait orientation
 # (320 wide × 480 tall). The LCD is mounted in landscape, so we swap X/Y
-# before hit-testing against the renderer's 480×320 coordinate space. If a
-# specific panel's chip is pre-configured landscape, flip TOUCH_SWAP_XY=0.
+# before hit-testing against the renderer's 480×320 coordinate space.
+#
+# Defaults below were verified empirically on the Haldzemo 3.5" board on
+# 2026-05-29: with SWAP_XY=1 / INVERT_X=0 / INVERT_Y=1, all four corner
+# taps mapped to the correct landscape pixel quadrant. The Y invert is
+# required because the chip's portrait Y axis has 0 at the panel's
+# bottom-physical edge and increases toward the top, opposite of what the
+# renderer expects. If a different board ships with the chip pre-configured
+# for landscape or a different orientation, override these in .env.
 DEFAULTS = {
     "TOUCH_I2C_BUS":  str(I2C_BUS_DEFAULT),
     "TOUCH_I2C_ADDR": hex(I2C_ADDR_DEFAULT),
     "TOUCH_SWAP_XY":  "1",
     "TOUCH_INVERT_X": "0",
-    "TOUCH_INVERT_Y": "0",
+    "TOUCH_INVERT_Y": "1",
 }
 
 

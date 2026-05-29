@@ -64,29 +64,29 @@ DONE_WINDOW_SECS = 600
 STALE_AFTER_SECS = 120
 
 COLOR = {
-    "bg":              (10, 10, 12),
-    "fg":              (240, 240, 240),
-    "dim":             (140, 140, 145),
-    "very_dim":        (90, 92, 98),
-    "rule":            (50, 55, 65),
-    "heater_on_bg":    (185, 35, 50),
+    "bg":              (250, 250, 252),
+    "fg":              (20, 22, 28),
+    "dim":             (110, 115, 125),
+    "very_dim":        (175, 180, 190),
+    "rule":            (215, 220, 230),
+    "heater_on_bg":    (218, 50, 60),    # vibrant red — heater is ON
     "heater_on_fg":    (255, 255, 255),
-    "heater_off_bg":   (40, 42, 48),
-    "heater_off_fg":   (190, 190, 195),
-    "heater_border":   (90, 95, 105),
-    "sched":           (170, 175, 185),
-    "flash_active":    (255, 195, 90),
-    "flash_done":      (110, 220, 130),
-    "flash_idle":      (140, 140, 145),
-    "flash_error":     (240, 95, 80),
-    "flash_stale":     (240, 95, 80),
-    "flash_context":   (170, 175, 185),  # "N shots queued" / "N logs done"
-    "ssid_hangar":     (140, 145, 155),
-    "ssid_flashair":   (255, 195, 90),
-    "ssid_none":       (240, 95, 80),
-    "hvac_heat":       (240, 100, 80),
-    "hvac_cool":       (90, 165, 240),
-    "hvac_freeze":     (255, 180, 60),
+    "heater_off_bg":   (38, 175, 85),    # vibrant green — heater is OFF (safe)
+    "heater_off_fg":   (255, 255, 255),
+    "heater_border":   (160, 165, 175),
+    "sched":           (50, 55, 65),
+    "flash_active":    (215, 130, 25),   # amber/orange, readable on white
+    "flash_done":      (35, 160, 75),    # green, mirrors OFF for "good state"
+    "flash_idle":      (135, 140, 150),
+    "flash_error":     (215, 55, 50),    # red, mirrors ON for "attention"
+    "flash_stale":     (215, 55, 50),
+    "flash_context":   (95, 100, 110),
+    "ssid_hangar":     (110, 115, 125),
+    "ssid_flashair":   (215, 130, 25),
+    "ssid_none":       (215, 55, 50),
+    "hvac_heat":       (220, 80, 50),
+    "hvac_cool":       (40, 130, 220),
+    "hvac_freeze":     (215, 150, 30),
 }
 
 # Font search paths. Pi/Debian first (the deployment target), macOS second
@@ -421,13 +421,21 @@ def render(state, flashair_ssid_pattern=None):
     d.line([(15, 268), (WIDTH - 15, 268)], fill=COLOR["rule"], width=1)
 
     # ----- HVAC + hangar temp footer --------------------------------------
+    # anchor="ls" (left-baseline) means all three texts baseline-align at
+    # FOOTER_BASELINE_Y regardless of point size — no magic per-font y-offset
+    # to maintain. Previous version used top-left anchor with hand-tuned y
+    # values (HVAC label at 286 / FREEZE value at 283 / Hangar at 286) which
+    # drifted visibly because the offsets weren't right for the actual font
+    # ascents.
+    FOOTER_BASELINE_Y = 300
     label, color = hvac_label(state.get("hvac"))
     if label is not None:
-        d.text((15, 286), "HVAC", fill=COLOR["dim"], font=f_label)
-        d.text((65, 283), label, fill=color, font=f_footer)
+        d.text((15, FOOTER_BASELINE_Y), "HVAC", fill=COLOR["dim"], font=f_label, anchor="ls")
+        d.text((65, FOOTER_BASELINE_Y), label, fill=color, font=f_footer, anchor="ls")
     hangar_f = state.get("hangar_f")
     if hangar_f is not None:
-        d.text((345, 286), f"Hangar {hangar_f:.0f}°F", fill=COLOR["dim"], font=f_footer)
+        d.text((345, FOOTER_BASELINE_Y), f"Hangar {hangar_f:.0f}°F",
+               fill=COLOR["dim"], font=f_footer, anchor="ls")
 
     return img
 

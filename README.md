@@ -305,6 +305,38 @@ If someone uses the physical IR remote while you're away, the dongle's reported 
 
 ---
 
+## Motion-wake backlight (optional)
+
+The 3.5" IPS dashboard runs 24/7. To save LED-backlight hours (and heat), an optional **DFRobot C4001 / SEN0610** 24 GHz mmWave sensor turns the backlight off when the hangar's empty and back on the moment it senses motion. IPS panels have no burn-in, so this is purely backlight longevity. Off by default — the display behaves normally until you enable it.
+
+### Hardware
+- **C4001 mmWave sensor** (~$13, [DFRobot SEN0610](https://www.dfrobot.com/product-2795.html)): 8 m presence / 12 m motion, 100°×80° beam, I²C + UART, −40…85 °C. The 12 m variant — *not* the 25 m SEN0609.
+- Wire it to the **same I²C bus the touch chip uses** (no extra GPIO): `VCC→3.3V, GND→GND, SDA→GPIO2, SCL→GPIO3`. Its address `0x2A` doesn't clash with the touch chip's `0x38`.
+- **Backlight:** move the panel's LED pin from VCC to **GPIO18**. If that pin draws more than ~16 mA, drive it through a small N-channel MOSFET (gate←GPIO18, drain←LED, source←GND) rather than directly.
+
+### Setup
+1. Install the sensor library on the Pi:
+   ```bash
+   git clone https://github.com/DFRobot/DFRobot_C4001
+   # put its python/raspberrypi dir on PYTHONPATH, or copy DFRobot_C4001.py
+   # next to display_loop.py
+   ```
+   `gpiozero` (for the backlight) ships with Raspberry Pi OS.
+2. Confirm both chips are on the bus: `i2cdetect -y 1` → shows `2a` and `38`.
+3. Aim and tune: `python3 display_loop.py --presence-test` prints detection/range for 30 s.
+4. Enable in `.env`, then restart the display service:
+   ```bash
+   PRESENCE_ENABLED=1
+   sudo systemctl restart display
+   ```
+
+### Behaviour
+- Backlight comes **on** the instant motion is sensed and **off** after `IDLE_TIMEOUT_SECS` (default 120 s) with no motion *and* no touch. The timer is **rolling** — every detection resets it, so it stays on the whole time you're moving around and only counts down from the last time you were seen.
+- **Tap-to-wake:** tapping a dark screen just wakes it; tapping a lit screen toggles the heater as usual.
+- **Fail-safe:** if the sensor is unwired, fails, or the library is missing, the backlight stays **on** — the feature can never leave the screen dark. All knobs (mode, timeout, fade, GPIO) are documented in `.env.example`.
+
+---
+
 ## Storage Architecture
 
 To minimise SD card writes on the Raspberry Pi, all per-minute data is written to a SQLite database in RAM (`/run/heater.db`, on tmpfs), not to the SD card. This file is flushed to disk weekly. The web UI reads from both the RAM and disk databases via SQLite's `ATTACH` so no data is ever lost between flushes.

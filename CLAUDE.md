@@ -14,12 +14,24 @@ Raspberry Pi airplane hangar controller. The web UI controls three independent d
 - `scripts/setup-wifi-bridge.sh` — optional one-shot installer for the AP+STA bridge that lets the Midea dongle pair on open hangar WiFi. See "WiFi bridge" below.
 - `templates/index.html` — Jinja2 template
 - `heater-flush.service` — systemd unit, flushes RAM DB to disk on commanded shutdown/reboot
+- `display.py` / `display_loop.py` / `display_state.py` — 3.5" SPI IPS dashboard (ST7796U via luma.lcd), driven by the `display.service` systemd unit; renders heater / HVAC / hangar temp / FlashAir status. Fed by `flashair.py` (reads the flashair-sync status file) and `touch.py` (FT6336U capacitive touch on I2C). **Not auto-reloaded by mod_wsgi — `sudo systemctl restart display` after changes.**
+- `presence.py` / `backlight.py` — optional motion-wake: a DFRobot C4001 mmWave sensor (I2C, shares the touch bus) turns the panel backlight off when the hangar's empty, on when motion is sensed. Opt-in via `PRESENCE_ENABLED`. See "Motion-wake backlight".
 
 ## Three independent controlled devices
 **Don't conflate these — they are physically and electrically separate systems.**
 1. **Engine-block heater** (`config.GPIO_PIN`=17) — relay on the airplane oil-pan heater. The original purpose of this project. Toggled by the web UI's "Heater" card and `?state=` query param.
 2. **Exhaust fan** (`config.FAN_GPIO_PIN`=27) — relay on a hangar exhaust fan with auto/on/off mode.
 3. **Hangar HVAC** — Durastar DRAW33F2A mini-split (Midea OEM) reached over the LAN via the Midea WiFi dongle (US-OSK105) using `msmart-ng` on TCP/6444. Controlled from the "Hangar HVAC" card. Has its own scheduling path through the same scheduler. All HVAC code lives in `hvac.py`; `config.py` and the heater code never touch it.
+
+## Motion-wake backlight (`presence.py` + `backlight.py`)
+Optional, opt-in via `PRESENCE_ENABLED=1`. Turns the dashboard backlight off when the hangar's empty, on when someone's there — saves LED-backlight hours + heat on the always-on panel.
+- **Sensor:** DFRobot C4001 / **SEN0610** (24GHz mmWave) on **I2C 0x2A**, sharing the FT6336U touch bus (touch is 0x38 — no clash, no extra GPIO). Needs the `DFRobot_C4001` Python lib on the Pi (`git clone https://github.com/DFRobot/DFRobot_C4001`, put `python/raspberrypi` on PYTHONPATH, or copy `DFRobot_C4001.py` next to `display_loop.py`).
+- **Backlight:** the panel's LED pin is moved off the always-on VCC jumper to **GPIO18** (hardware-PWM). `backlight.py` PWMs it via gpiozero (full-off when idle, short fade). If the LED pin draws >~16 mA, it needs an N-MOSFET (gate←GPIO18).
+- **Logic** (in `display_loop.py`): **rolling** idle timeout — `_last_activity` resets on every presence detection OR touch; backlight sleeps after `IDLE_TIMEOUT_SECS` (default 120) with neither. Default mode `motion` (SPEED_MODE, ~12 m, covers the hangar; a motionless person reads as no-target — the timeout bridges it). `presence` mode = EXIST_MODE (~8 m, holds still presence). While asleep the loop stops pushing frames and skips the data-driven fast refresh; wake does an immediate render.
+- **Tap-to-wake:** a tap on a dark screen only wakes it (swallowed); a tap on a lit screen toggles the heater as normal.
+- **Fail-safe:** an unwired/failed sensor (or missing lib) → backlight forced **ON**. Lazy imports mean the display runs fine without the sensor or lib, so the feature can never leave the hangar screen dark.
+- **Beam caveat:** the C4001's 12 m is a forward lobe (100°×80°, narrowing with distance) — full depth down the centerline, wide up close; a motionless person in a far corner that never crossed the beam may not register. Fine for wake-on-entry.
+- **Tune/verify:** `python3 display_loop.py --presence-test` dumps detected/range/speed for 30 s. `i2cdetect -y 1` should show `2a` + `38`. Deploy needs `sudo systemctl restart display` (the display service doesn't auto-reload).
 
 ## Storage
 **Hot-path writes MUST go to `/run` (tmpfs / RAM), not `/var/lib/heater` (SD card).** SD cards on a Pi Zero W have a limited write-cycle budget; this app runs every minute for years. Any new feature that writes more often than ~once a week belongs in `/run`. The accepted tradeoff: anything in `/run` is lost on unplanned power loss — for this hangar that's fine because the disk DB has data up to the last weekly flush, and the `heater-flush.service` systemd unit catches commanded reboots/shutdowns.

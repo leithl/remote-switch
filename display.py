@@ -69,9 +69,9 @@ COLOR = {
     "dim":             (110, 115, 125),
     "very_dim":        (175, 180, 190),
     "rule":            (215, 220, 230),
-    "heater_on_bg":    (218, 50, 60),    # vibrant red — heater is ON
+    "heater_on_bg":    (235, 40, 45),    # punchy saturated red — heater is ON
     "heater_on_fg":    (255, 255, 255),
-    "heater_off_bg":   (38, 175, 85),    # vibrant green — heater is OFF (safe)
+    "heater_off_bg":   (25, 155, 70),    # deep emerald green — heater is OFF (safe)
     "heater_off_fg":   (255, 255, 255),
     "heater_border":   (160, 165, 175),
     "sched":           (50, 55, 65),

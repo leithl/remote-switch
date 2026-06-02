@@ -226,11 +226,18 @@
   <div class="step-body"><label for="p4">Sensor inspected — no bent pins, board reads "C4001" / "DFR1156" / SEN0610.</label></div>
 </div>
 
-<h2>Set the board to I2C mode</h2>
-<p>The C4001 talks I2C <em>or</em> UART, selected on the board. We use I2C so it can share the bus the touch chip already uses (no extra GPIO).</p>
+<h2>Set the DIP switches — I2C mode + address</h2>
+<p>The C4001 talks I2C <em>or</em> UART, set by <strong>two DIP switches on the back of the board</strong> (not a slide switch — the silkscreen labels each one). We use I2C so the sensor shares the bus the touch chip already uses (no extra GPIO).</p>
 <div class="step">
   <input type="checkbox" id="m1">
-  <div class="step-body"><label for="m1">Set the I2C/UART selector to <strong>I2C</strong> (DFRobot Gravity C4001 has a small slide switch / solder-pad — check the silkscreen near the connector). If yours has no switch it defaults to I2C.</label></div>
+  <div class="step-body"><label for="m1"><strong>Mode switch → I2C.</strong> Set the <code>I2C / UART</code> switch to the <strong>I2C</strong> side. This is the one that matters — DFRobot ships these to be set by hand, so <em>don't assume it's already on I2C</em>. On UART the sensor never appears on the bus and <code>i2cdetect</code> won't see it.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="m2">
+  <div class="step-body"><label for="m2"><strong>Address switch → <code>0x2A</code>.</strong> The second switch picks the I2C address, <code>0x2A</code> or <code>0x2B</code>. Leave it on the <code>0x2A</code> default — that's what the code expects.</label></div>
+</div>
+<div class="note tip">
+  <strong>If <code>i2cdetect</code> later shows <code>2b</code> instead of <code>2a</code></strong>, don't reopen the case — just set <code>PRESENCE_I2C_ADDR=0x2B</code> in <code>.env</code> and restart the display. The address switch isn't critical; the mode switch is.
 </div>
 
 <h2>Power down before wiring</h2>
@@ -251,16 +258,14 @@ sudo systemctl poweroff</code></pre>Wait for the green ACT LED to stop blinking,
     <tr><th>C4001 pin</th><th>Pi BCM</th><th>Pi header pin</th><th>Notes</th></tr>
   </thead>
   <tbody>
-    <tr class="power"><td>VCC</td><td>3V3</td><td>1 / 17</td><td>Power. Both 3V3 pins are taken (DS18B20 on 1, panel on 17) — tap the breadboard 3V3 rail you already have.</td></tr>
-    <tr class="gnd"><td>GND</td><td>GND</td><td>6 / 9 / 14 / …</td><td>Any GND pin (or the breadboard GND rail).</td></tr>
-    <tr><td>SDA</td><td>BCM 2</td><td>3</td><td>Shared with the FT6336U touch — wire in parallel onto the same line.</td></tr>
-    <tr><td>SCL</td><td>BCM 3</td><td>5</td><td>Shared with touch.</td></tr>
-    <tr style="opacity:0.5"><td>OUT</td><td>—</td><td>—</td><td>Leave unconnected. (Digital presence pin — only used as a fallback if I2C ever misbehaves.)</td></tr>
-    <tr style="opacity:0.5"><td>TX / RX</td><td>—</td><td>—</td><td>Leave unconnected — UART unused.</td></tr>
+    <tr class="power"><td>+ (VCC)</td><td>3V3</td><td>1 / 17</td><td>Power. Both 3V3 pins are taken (DS18B20 on 1, panel on 17) — tap the breadboard 3V3 rail you already have.</td></tr>
+    <tr class="gnd"><td>− (GND)</td><td>GND</td><td>6 / 9 / 14 / …</td><td>Any GND pin (or the breadboard GND rail).</td></tr>
+    <tr><td>D/T (SDA)</td><td>BCM 2</td><td>3</td><td>Data line. Shared with the FT6336U touch — wire in parallel onto the same line.</td></tr>
+    <tr><td>C/R (SCL)</td><td>BCM 3</td><td>5</td><td>Clock line. Shared with touch.</td></tr>
   </tbody>
 </table>
 <div class="note tip">
-  <strong>Power it at 3.3V, not 5V.</strong> The board's OUT/IO pins then swing 3.3V (Pi-safe). The I2C lines are open-drain and pulled to 3.3V by the Pi regardless, but keeping VCC at 3.3V keeps everything unambiguous.
+  <strong>The board prints <code>+ &minus; C/R D/T</code>, not SDA/SCL.</strong> In I2C mode <code>D/T</code> is data (SDA) and <code>C/R</code> is clock (SCL) — the same two pins double as UART TX/RX when the mode switch is on UART. It's a 4-pin Gravity connector: there's no separate OUT/IO pin to leave unconnected. <strong>Power it at 3.3V, not 5V</strong> (the board accepts either) so its logic stays Pi-safe.
 </div>
 
 <h2>Wiring — move the backlight to GPIO18</h2>
@@ -286,7 +291,7 @@ sudo systemctl poweroff</code></pre>Wait for the green ACT LED to stop blinking,
 
 <div class="step">
   <input type="checkbox" id="w1">
-  <div class="step-body"><label for="w1">Sensor's 4 wires connected (VCC, GND, SDA→pin&nbsp;3, SCL→pin&nbsp;5), double-checked against the table.</label></div>
+  <div class="step-body"><label for="w1">Sensor's 4 wires connected (<code>+</code>→3V3, <code>−</code>→GND, <code>D/T</code>→pin&nbsp;3, <code>C/R</code>→pin&nbsp;5), double-checked against the table.</label></div>
 </div>
 <div class="step">
   <input type="checkbox" id="w2">

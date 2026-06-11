@@ -3,9 +3,10 @@
 log_temp.py — Cron script replacing log_temp.sh.
 
 Usage:
-    log_temp.py              # Normal: log one reading (every minute)
-    log_temp.py flush        # Persist RAM db → disk db, clear RAM
-    log_temp.py rollup       # Pre-compute previous month's stats and cache them
+    log_temp.py                 # Normal: log one reading (every minute)
+    log_temp.py flush           # Persist RAM db → disk db, clear RAM
+    log_temp.py rollup          # Pre-compute previous month's stats and cache them
+    log_temp.py rollup YYYY-MM  # Recompute one month's cache (backfill), no email
 """
 
 import fcntl
@@ -54,12 +55,28 @@ def do_flush():
 # Rollup mode
 # ---------------------------------------------------------------------------
 
-def do_rollup():
-    env = config.load_env()
-    notify_email = env.get("NOTIFY_EMAIL", "").strip()
+def do_rollup(month_arg=None):
+    """Roll up one month into monthly_cache.
 
-    today = date.today()
-    prev_month_date = config.subtract_months(today, 1)
+    Default (monthly cron): previous calendar month, with summary email.
+    With an explicit 'YYYY-MM' arg: recompute that month and skip the email —
+    used to backfill cache entries after stats additions (e.g. heater_kwh /
+    hvac_kwh), since past months are otherwise never recomputed.
+    """
+    if month_arg:
+        prev_month_date = datetime.strptime(month_arg + "-01", "%Y-%m-%d").date()
+        # A partial-month snapshot is masked while the month is current (the
+        # stats table computes the current month live) but becomes the
+        # authoritative past-month view once it rolls over — permanently, if
+        # the monthly cron ever misses its tick. Refuse to create one.
+        if month_arg >= date.today().strftime("%Y-%m"):
+            sys.exit(f"refusing to cache incomplete month {month_arg}")
+    else:
+        prev_month_date = config.subtract_months(date.today(), 1)
+
+    env = config.load_env()
+    notify_email = "" if month_arg else env.get("NOTIFY_EMAIL", "").strip()
+
     start_epoch, end_epoch, label = _month_bounds(prev_month_date)
     month_key = prev_month_date.strftime("%Y-%m")
 
@@ -67,6 +84,12 @@ def do_rollup():
     rows = config.query_readings(conn, start_epoch, end_epoch)
 
     result = aggregate.compute(rows, start_epoch, end_epoch)
+
+    # Backfill guard: a typo'd month (or a migrate-era month whose raw rows
+    # no longer exist) would REPLACE a good cache entry with an all-None one.
+    if month_arg and result["temp_stats"] is None:
+        conn.close()
+        sys.exit(f"no readings for {month_key}; cache left untouched")
 
     # Serialize to JSON and store in monthly_cache
     cache_data = json.dumps(result)
@@ -101,6 +124,9 @@ def do_rollup():
             )
             if "fan_on_hrs" in rs:
                 runtime_line += f"; Fan: {rs['fan_on_hrs']:.1f} hours"
+            if "heater_kwh" in rs:
+                energy_kwh = rs["heater_kwh"] + rs.get("hvac_kwh", 0)
+                runtime_line += f"; Energy: {energy_kwh:.1f} kWh"
             coverage_line = (
                 f"Temp: {rs['temp_coverage_pct']:.1f}%, "
                 f"Heater: {rs['heater_coverage_pct']:.1f}%"
@@ -274,6 +300,6 @@ if __name__ == "__main__":
     if mode == "flush":
         do_flush()
     elif mode == "rollup":
-        do_rollup()
+        do_rollup(sys.argv[2] if len(sys.argv) > 2 else None)
     else:
         do_log()

@@ -102,9 +102,24 @@ def _month_data(mk, label, ts, as_, rs, t_pct):
     if rs:
         heater_str = f'{rs["on_hrs"]:.1f}h ({rs["avg_hrs_day"]:.1f}/day)'
         fan_str = f'{rs["fan_on_hrs"]:.1f}h' if "fan_on_hrs" in rs else None
+        # heater_kwh missing on monthly_cache entries rolled up before the
+        # energy stats existed — derive it from on_hrs (exact: fixed 180W
+        # resistive load). hvac_kwh can't be reconstructed from cached stats;
+        # `log_temp.py rollup YYYY-MM` backfills it, but only for months with
+        # ac_power_w data (2026-05 onward) — earlier months get the * marker.
+        heater_kwh = rs.get("heater_kwh")
+        if heater_kwh is None:
+            heater_kwh = rs["on_hrs"] * aggregate.HEATER_POWER_W / 1000
+        energy_str = f'{heater_kwh + rs.get("hvac_kwh", 0):.1f} kWh'
+        # hvac_on_hrs without hvac_kwh = the HVAC ran but its energy isn't in
+        # the total (cached month predating ac_power_w logging / this stat) —
+        # flag it so heater-only doesn't read as the complete figure.
+        energy_incomplete = "hvac_on_hrs" in rs and "hvac_kwh" not in rs
     else:
         heater_str = None
         fan_str = None
+        energy_str = None
+        energy_incomplete = False
     return {
         "mk": mk,
         "label": label,
@@ -113,6 +128,8 @@ def _month_data(mk, label, ts, as_, rs, t_pct):
         "outdoor": as_,
         "heater_str": heater_str,
         "fan_str": fan_str,
+        "energy_str": energy_str,
+        "energy_incomplete": energy_incomplete,
     }
 
 
@@ -154,7 +171,8 @@ def _compute_months_data(conn, now_epoch=None):
     if live_month_meta:
         batch_start = min(m[2] for m in live_month_meta)
         batch_end = max(m[4] for m in live_month_meta)
-        live_batch_stats = config.query_batch_stats(conn, batch_start, batch_end)
+        live_batch_stats = config.query_batch_stats(
+            conn, batch_start, batch_end, aggregate.POWER_ON_THRESHOLD_W)
 
     for mk, lbl, m_start, m_end, effective_end, is_current in month_meta:
         cached = cache_map.get(mk) if not is_current else None
@@ -711,7 +729,8 @@ def _build_stats(sql_row, m_start, effective_end):
     (avg_c, min_c, max_c, cold_mins, count_temp,
      on_mins, count_heater,
      fan_mins, count_fan,
-     avg_amb, min_amb, max_amb, cold_amb_mins, count_amb) = sql_row
+     avg_amb, min_amb, max_amb, cold_amb_mins, count_amb,
+     hvac_watt_mins, count_hvac) = sql_row
 
     possible_mins = (effective_end - m_start) / 60
     days = (effective_end - m_start) / 86400
@@ -741,9 +760,12 @@ def _build_stats(sql_row, m_start, effective_end):
             "avg_hrs_day": round((on_mins / 60) / days, 1) if days > 0 else 0.0,
             "temp_coverage_pct": round(count_temp / possible_mins * 100, 1) if possible_mins > 0 else 0.0,
             "heater_coverage_pct": round(count_heater / possible_mins * 100, 1) if possible_mins > 0 else 0.0,
+            "heater_kwh": round(on_mins * aggregate.HEATER_POWER_W / 60000, 1),
         }
         if count_fan:
             rs["fan_on_hrs"] = round(fan_mins / 60, 1)
+        if count_hvac:
+            rs["hvac_kwh"] = round((hvac_watt_mins or 0) / 60000, 1)
 
     return ts, as_, rs
 

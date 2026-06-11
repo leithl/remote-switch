@@ -440,20 +440,28 @@ def query_bucketed(conn, since_epoch, until_epoch, bucket_secs=900):
     return conn.execute(sql, (since_epoch, until_epoch)).fetchall()
 
 
-def query_batch_stats(conn, since_epoch, until_epoch):
+def query_batch_stats(conn, since_epoch, until_epoch, power_on_threshold_w):
     """
     Compute per-calendar-month aggregated stats in a single SQL query.
 
     Replaces N calls to aggregate.compute() for monthly stats — all months
     are grouped in one pass over the data.
 
+    power_on_threshold_w: watts above which an ac_power_w sample counts as
+    "HVAC actually running" — pass aggregate.POWER_ON_THRESHOLD_W (kept as a
+    parameter so config.py doesn't import aggregate).
+
     Returns dict: {month_key: stats_tuple} where month_key is 'YYYY-MM' in
     local time and stats_tuple is:
         (avg_c, min_c, max_c, cold_mins, count_temp,
          on_mins, count_heater,
-         avg_amb_c, min_amb_c, max_amb_c, cold_amb_mins, count_amb)
-    Months with no data are absent from the dict.
+         fan_mins, count_fan,
+         avg_amb_c, min_amb_c, max_amb_c, cold_amb_mins, count_amb,
+         hvac_watt_mins, count_hvac)
+    hvac_watt_mins sums ac_power_w over above-threshold minutes only (0 when
+    the month has no such minutes). Months with no data are absent from the dict.
     """
+    thr = int(power_on_threshold_w)
     select = (
         "strftime('%Y-%m', epoch, 'unixepoch', 'localtime') AS mk,"
         " AVG(temp_c), MIN(temp_c), MAX(temp_c),"
@@ -465,15 +473,17 @@ def query_batch_stats(conn, since_epoch, until_epoch):
         " COUNT(fan_state),"
         " AVG(ambient_c), MIN(ambient_c), MAX(ambient_c),"
         " SUM(CASE WHEN ambient_c <= 8.89 THEN 1 ELSE 0 END),"
-        " COUNT(ambient_c)"
+        " COUNT(ambient_c),"
+        f" SUM(CASE WHEN ac_power_w > {thr} THEN ac_power_w ELSE 0 END),"
+        " COUNT(ac_power_w)"
     )
     if _has_ram(conn):
         sql = (
             f"SELECT {select} FROM ("
-            "SELECT epoch, temp_c, heater_state, ambient_c, fan_state FROM readings"
+            "SELECT epoch, temp_c, heater_state, ambient_c, fan_state, ac_power_w FROM readings"
             " WHERE epoch >= ? AND epoch < ?"
             " UNION"
-            " SELECT epoch, temp_c, heater_state, ambient_c, fan_state FROM ram.readings"
+            " SELECT epoch, temp_c, heater_state, ambient_c, fan_state, ac_power_w FROM ram.readings"
             " WHERE epoch >= ? AND epoch < ?"
             ") GROUP BY mk ORDER BY mk"
         )

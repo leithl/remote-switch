@@ -15,6 +15,11 @@ from statistics import mean
 # kicking in pushes well past 200W.
 POWER_ON_THRESHOLD_W = 200
 
+# Engine-block heater draw when the relay is on (measured; simple resistive
+# load, no duty cycling). Energy = on-minutes × this. The heater has no meter,
+# so this constant is the whole calculation.
+HEATER_POWER_W = 180
+
 # Door-detection thresholds. The Pi DS18B20 sits at ~4 ft (floor) and
 # ac_indoor_f reads from the unit's ceiling thermistor at ~12 ft. A door
 # opening lets denser air infiltrate one stratum while the other stays put:
@@ -62,6 +67,7 @@ def compute(rows, cutoff, chart_end):
     on_mins = 0
     fan_on_mins = 0
     hvac_running_mins = 0
+    hvac_watt_mins = 0.0
     total_temp_mins = 0
     total_heater_mins = 0
     total_fan_mins = 0
@@ -139,6 +145,7 @@ def compute(rows, cutoff, chart_end):
             if ac_power_w > POWER_ON_THRESHOLD_W:
                 power_buckets.setdefault(b, []).append(ac_power_w)
                 hvac_running_mins += 1
+                hvac_watt_mins += ac_power_w
 
         # --- ambient ---
         if ambient_c is not None:
@@ -214,6 +221,7 @@ def compute(rows, cutoff, chart_end):
             "avg_hrs_day": round((on_mins / 60) / days, 1) if days > 0 else 0.0,
             "temp_coverage_pct": round(total_temp_mins / possible_mins * 100, 1) if possible_mins > 0 else 0.0,
             "heater_coverage_pct": round(total_heater_mins / possible_mins * 100, 1) if possible_mins > 0 else 0.0,
+            "heater_kwh": round(on_mins * HEATER_POWER_W / 60000, 1),
         }
         if total_fan_mins > 0:
             runtime_stats["fan_on_hrs"] = round(fan_on_mins / 60, 1)
@@ -223,6 +231,11 @@ def compute(rows, cutoff, chart_end):
             # some mode". Old monthly_cache rows from before this change use
             # the old looser definition; that's acceptable drift in stats.
             runtime_stats["hvac_on_hrs"] = round(hvac_running_mins / 60, 1)
+            # Energy while actively heating/cooling: full draw of every
+            # above-threshold minute. Idle/standby minutes contribute nothing —
+            # "actual usage", not the meter's lifetime total. Subject to the
+            # open W-vs-VA caveat on the dongle's meter (see CLAUDE.md).
+            runtime_stats["hvac_kwh"] = round(hvac_watt_mins / 60000, 1)
 
     return {
         "chart_data": chart_data,

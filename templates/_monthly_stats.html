@@ -78,6 +78,12 @@
   <td class="text-end">{{ m.fan_str if m.fan_str else '—' }}</td>
   {% endfor %}
 </tr>
+<tr>
+  <td class="stats-metric-col ps-3">Energy</td>
+  {% for m in months_data %}
+  <td class="text-end">{% if m.energy_str %}{{ m.energy_str }}{% if m.energy_incomplete %}<span title="Heater only — HVAC energy not measured this month (power logging began 2026-05-07)">*</span>{% endif %}{% else %}—{% endif %}</td>
+  {% endfor %}
+</tr>
 </tbody>
 </table>
 </div>

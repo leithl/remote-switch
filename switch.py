@@ -97,6 +97,16 @@ def _month_label(d):
 # Stats data builder
 # ---------------------------------------------------------------------------
 
+# HVAC install (Nov 2025) through the last month before ac_power_w logging
+# began (2026-05-07): the unit ran FP all winter but no per-minute power data
+# exists, so these months' Energy cells are heater-only and can never be
+# completed. Neither their cached stats nor the live-SQL tuple carries any
+# HVAC marker (ac_power_w is NULL throughout), so the window has to be
+# spelled out here. Harmlessly dead once the 13-month view slides past it.
+ENERGY_UNMEASURED_FIRST_MK = "2025-11"
+ENERGY_UNMEASURED_LAST_MK = "2026-04"
+
+
 def _month_data(mk, label, ts, as_, rs, t_pct):
     """Return structured stats dict for one month (consumed by the transposed template table)."""
     if rs:
@@ -111,10 +121,13 @@ def _month_data(mk, label, ts, as_, rs, t_pct):
         if heater_kwh is None:
             heater_kwh = rs["on_hrs"] * aggregate.HEATER_POWER_W / 1000
         energy_str = f'{heater_kwh + rs.get("hvac_kwh", 0):.1f} kWh'
-        # hvac_on_hrs without hvac_kwh = the HVAC ran but its energy isn't in
-        # the total (cached month predating ac_power_w logging / this stat) —
-        # flag it so heater-only doesn't read as the complete figure.
-        energy_incomplete = "hvac_on_hrs" in rs and "hvac_kwh" not in rs
+        # Flag months where the HVAC ran but its energy isn't in the total, so
+        # heater-only doesn't read as the complete figure: the known unmetered
+        # window, plus any cached month recording HVAC runtime without energy.
+        energy_incomplete = "hvac_kwh" not in rs and (
+            "hvac_on_hrs" in rs
+            or ENERGY_UNMEASURED_FIRST_MK <= mk <= ENERGY_UNMEASURED_LAST_MK
+        )
     else:
         heater_str = None
         fan_str = None

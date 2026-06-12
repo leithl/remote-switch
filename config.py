@@ -498,6 +498,23 @@ def query_batch_stats(conn, since_epoch, until_epoch, power_on_threshold_w):
     return {row[0]: row[1:] for row in rows}
 
 
+def query_first_epoch(conn):
+    """
+    Return the epoch of the oldest reading across disk + RAM, or None if
+    there are no readings at all. Effectively free — epoch is the PRIMARY
+    KEY, so MIN(epoch) is a B-tree head lookup, not a scan.
+    """
+    if _has_ram(conn):
+        row = conn.execute(
+            "SELECT MIN(e) FROM ("
+            "SELECT MIN(epoch) AS e FROM readings"
+            " UNION ALL SELECT MIN(epoch) AS e FROM ram.readings)"
+        ).fetchone()
+    else:
+        row = conn.execute("SELECT MIN(epoch) FROM readings").fetchone()
+    return row[0] if row else None
+
+
 def _has_ram(conn):
     """Return True if 'ram' database is attached."""
     for row in conn.execute("PRAGMA database_list"):

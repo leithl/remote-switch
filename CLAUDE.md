@@ -52,6 +52,7 @@ Existing heater rows keep `action` = `"0"`/`"1"`; HVAC rows use `action` = `"set
 - **Energy row in the monthly summary table (added 2026-06).** Runtime group shows per-month kWh = heater + HVAC. Heater: on-minutes × `aggregate.HEATER_POWER_W` (180W fixed resistive load — no meter, the constant is the whole calculation). HVAC: sum of per-minute `ac_power_w` for samples above `POWER_ON_THRESHOLD_W` — full draw of active minutes, idle/standby contributes nothing ("actual usage", not the meter's lifetime total; inherits the open W-vs-VA caveat below). Live months compute in SQL (`config.query_batch_stats`); past months read `monthly_cache`. Backfill rules for cached months:
   - **2026-05 (one-time deploy step):** `sudo python3 log_temp.py rollup 2026-05` — its cache was rolled up by the old code, so the Energy row under-reports by the ~11.5 kWh of measured May HVAC work until this runs. Explicit-month rollup skips the summary email, refuses the current/future month (a partial snapshot would permanently shadow live data once the month rolls over), and refuses months with no readings (protects against typos clobbering good entries).
   - **Months before 2026-05: do NOT re-roll.** `ac_power_w` is NULL pre-2026-05-07, so a re-roll can never add `hvac_kwh` — and it would *erase* the legacy `hvac_on_hrs` from the cache. These months render with a `*` on the Energy row (tooltip: heater only, HVAC unmeasured); the winter FP compressor work (~960 kWh lifetime estimate) is simply not in their totals. The unmetered window (2025-11 through 2026-04) is pinned as `ENERGY_UNMEASURED_*_MK` in `switch.py` — neither cached stats nor the live SQL carries any HVAC signal for those months, so the marker can't be data-driven.
+  - **The monthly cron self-heals cache holes (added 2026-06).** After rolling the previous month, `do_rollup` backfills every uncached older month in the 13-month window — empty months get their all-None stats cached too (renders as "no data", but the entry's existence keeps the stats table's live batch-scan window at just the current month; an uncached month pins the window and silently reintroduces the ~13s full-table scan). It only fills holes (`INSERT OR IGNORE`), never overwrites, so the do-NOT-re-roll rule above is unaffected.
   - Seasonal note: idle draw reads ~21W in June 2026 vs the winter-long flat 146W, so the "idle baseline" varies; the 200W threshold clears both.
 
 ## Thermal analysis tools (established 2026-05-07, refined 2026-05-08)
@@ -83,6 +84,7 @@ The original BCD-vs-BINARY format question on `ac_total_kwh` is **resolved**, bu
 - `LOCATION` in `.env` can be an ICAO code (e.g. `KLMO`); lat/lon resolved via OurAirports CSV geocoding on first run.
 - mod_wsgi daemon mode auto-reloads when **`switch.py`** changes. `git pull` is sufficient if the change is in `switch.py` itself; for changes to imported modules (`aggregate.py`, `hvac.py`, `config.py`), `git pull` updates the file on disk but mod_wsgi keeps the previously-imported module in memory until `switch.py`'s mtime changes. So after pulling a non-`switch.py` change, also do `touch switch.py` to force a daemon reload. (Symptom of forgetting: deployed code looks right on disk but the WSGI app behaves like it did before the pull. Verified 2026-05-08 with PR #19's `aggregate.py` threshold change.)
 - All schema additions use `ALTER TABLE ... ADD COLUMN` wrapped in try/except in `get_db()` / `get_ram_db()`. Don't introduce a separate migration system.
+- **Main-page TTFB budget (~0.5s on the Pi Zero W, fixed 2026-06-12 from 2.4s).** The temperature display reads the latest cron-logged row (`config.read_temp_cached`, falls back to a live probe read if logging stalls >5 min) — a live DS18B20 conversion blocks ~850ms, so don't put `read_temp()` back on the render path. Anything else slow belongs behind a lazy fragment endpoint (see "URL surface"), the established pattern for monthly stats, HVAC card, and door events.
 
 ## WiFi bridge (`scripts/setup-wifi-bridge.sh`)
 - **Purpose: pairing only.** The Midea dongle's pairing app (NetHome Plus) refuses to pair against an open SSID. Many hangar WiFi networks are open. The bridge lets the Pi broadcast its own WPA2 SSID for the dongle to live on, while the Pi stays a client on the open hangar WiFi and NATs the dongle's traffic out.
@@ -205,13 +207,14 @@ The wrappers were verified against msmart-ng 2025.12.0. If you upgrade, watch th
 - HVAC immediate apply: `?hvac_apply=1` plus `&hvac_power=0|1&hvac_mode=…&hvac_target_f=…&hvac_fan_speed=…`. Special case: `&hvac_mode=freeze` triggers the Freeze Prevention preset and ignores the other args.
 - Schedule add: `?sched_dt=YYYY-MM-DDTHH:MM&sched_device=heater|hvac` plus device-specific params (`sched_action` for heater; `sched_hvac_mode/target_f/fan_speed/power` for HVAC).
 - Schedule cancel: `?cancel_id=<created_epoch>`.
-- Chart range: `?range=7d|30d|YYYY-MM`.
+- Chart range: `?range=1d|7d|30d|YYYY-MM`.
+- Lazy fragments (fetched by page JS after load, kept off the main TTFB): `?monthly_stats=1` (~1s SQL scan), `?hvac_state=1` (dongle round-trip), `?door_events=1&range=1d|7d` (~0.6s raw-row scan).
 
 ## Chart bands, lines, and colors
 - Heater band (engine-block) — `rgba(220, 53, 69, 0.25)` red
 - Fan band — `rgba(13, 110, 253, 0.20)` blue
 - Cold annotation (≤48°F) — `rgba(255, 152, 0, 0.15)` orange box
-- Door-open marker — `rgba(219, 39, 119, 0.55)` fuchsia bar (distinct from the orange cold annotation); computed by `aggregate.detect_door_events()` from raw per-minute rows (1d/7d only — 30d/monthly skipped because events would render as overlapping pixels). Tooltip shows `Door event (cold air in / warm air in, N°F peak)`.
+- Door-open marker — `rgba(219, 39, 119, 0.55)` fuchsia bar (distinct from the orange cold annotation); computed by `aggregate.detect_door_events()` from raw per-minute rows (1d/7d only — 30d/monthly skipped because events would render as overlapping pixels). Lazy-loaded via `?door_events=1` and painted in after the chart renders — the 10k-row fetch costs ~0.6s on the Pi Zero W, so it's off the main TTFB (SQL window functions were measured *slower* than the Python scan on this CPU; don't re-try that). Tooltip shows `Door event (cold air in / warm air in, N°F peak)`.
 - Hangar temp line — `rgb(75, 192, 192)` teal (left y-axis, °F)
 - Ambient line — `rgb(34, 197, 94)` green (left y-axis, °F)
 - HVAC power line — `rgb(168, 85, 247)` purple (**right y-axis, Watts**)

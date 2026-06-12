@@ -5,7 +5,8 @@ log_temp.py — Cron script replacing log_temp.sh.
 Usage:
     log_temp.py                 # Normal: log one reading (every minute)
     log_temp.py flush           # Persist RAM db → disk db, clear RAM
-    log_temp.py rollup          # Pre-compute previous month's stats and cache them
+    log_temp.py rollup          # Cache previous month's stats + backfill any
+                                # missing older months in the 13-month window
     log_temp.py rollup YYYY-MM  # Recompute one month's cache (backfill), no email
 """
 
@@ -58,7 +59,9 @@ def do_flush():
 def do_rollup(month_arg=None):
     """Roll up one month into monthly_cache.
 
-    Default (monthly cron): previous calendar month, with summary email.
+    Default (monthly cron): previous calendar month, with summary email,
+    then self-heal — backfill any uncached older month in the stats table's
+    13-month window (never overwriting existing entries).
     With an explicit 'YYYY-MM' arg: recompute that month and skip the email —
     used to backfill cache entries after stats additions (e.g. heater_kwh /
     hvac_kwh), since past months are otherwise never recomputed.
@@ -98,6 +101,41 @@ def do_rollup(month_arg=None):
         (month_key, cache_data)
     )
     conn.commit()
+
+    # Self-heal (cron path only): backfill every older month of the stats
+    # table's 13-month window that has no cache entry. A hole in the cache —
+    # a missed cron tick, or months predating the rollup feature — pins the
+    # batch-scan window in _compute_months_data (switch.py) and silently
+    # reintroduces the full-table scan. Empty months are cached too: their
+    # all-None stats render as "no data" exactly like an uncached empty
+    # month, but their presence keeps the live window at just the current
+    # month. INSERT OR IGNORE never overwrites — re-rolling old months can
+    # lose fields the current code no longer computes (see CLAUDE.md on
+    # pre-2026-05 hvac_on_hrs).
+    if not month_arg:
+        cached = {
+            row[0] for row in conn.execute("SELECT month FROM monthly_cache")
+        }
+        for i in range(2, 13):  # i=1 (previous month) was just rolled above
+            md = config.subtract_months(date.today(), i)
+            mk = md.strftime("%Y-%m")
+            if mk in cached:
+                continue
+            m_start, m_end, _ = _month_bounds(md)
+            m_result = aggregate.compute(
+                config.query_readings(conn, m_start, m_end), m_start, m_end
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO monthly_cache (month, data) VALUES (?, ?)",
+                (mk, json.dumps(m_result)),
+            )
+            # Commit per month so the write lock is never held across the
+            # next iteration's compute (a real-data month after >=2 missed
+            # ticks can take tens of seconds on the Pi Zero W, and the
+            # per-minute do_log tick writes this DB too).
+            conn.commit()
+            print(f"backfilled monthly_cache for {mk}")
+
     conn.close()
 
     # Send email summary if configured

@@ -138,9 +138,11 @@ def _month_data(mk, label, ts, as_, rs, t_pct):
 # ---------------------------------------------------------------------------
 
 def _compute_months_data(conn, now_epoch=None):
-    """Build the 13-month stats list. Slow on Pi Zero W (~6s SQL scan), so the
-    main page render skips this — clients fetch it via ?monthly_stats=1 after
-    page load. Reused from both the lazy endpoint and the full-page render."""
+    """Build the 13-month stats list. Slow on Pi Zero W (~1s SQL scan over the
+    uncached months; was ~13s when pre-data months pinned the batch window), so
+    the main page render skips this — clients fetch it via ?monthly_stats=1
+    after page load. Reused from both the lazy endpoint and the full-page
+    render."""
     if now_epoch is None:
         now_epoch = int(datetime.now().timestamp())
     cur_month_date = date.today().replace(day=1)
@@ -167,6 +169,18 @@ def _compute_months_data(conn, now_epoch=None):
     }
 
     live_month_meta = [m for m in month_meta if m[5] or m[0] not in cache_map]
+    # Months that ended before the first reading can never produce rows, and
+    # never gain a cache entry either (the monthly cron only rolls the single
+    # previous month; the explicit backfill path refuses empty months) — but
+    # leaving them in the live list pins batch_start at the start of the
+    # 13-month window, making the batch query below scan the entire readings
+    # table (~13s on the Pi Zero W) instead of just the uncached recent
+    # months (~1s). An empty month *inside* the data range still widens the
+    # window the same way until it ages out of the 13-month lookback —
+    # accepted: it takes a full calendar month of downtime to create one.
+    first_epoch = config.query_first_epoch(conn)
+    if first_epoch is not None:
+        live_month_meta = [m for m in live_month_meta if m[3] > first_epoch]
     live_batch_stats = {}
     if live_month_meta:
         batch_start = min(m[2] for m in live_month_meta)
@@ -353,9 +367,9 @@ def _handle(environ):
         )
         _respond("application/json", json.dumps({"power_on": power_on, "html": body_html}))
 
-    # --- Lazy-loaded monthly stats table (~6.7s SQL scan on Pi Zero W) ---
+    # --- Lazy-loaded monthly stats table (~1s SQL scan on Pi Zero W) ---
     # Same pattern: main page skips it, client JS fetches and swaps into
-    # #monthly-stats-body. Drops main TTFB by ~6s.
+    # #monthly-stats-body, keeping the scan off the main TTFB.
     if qs.get("monthly_stats") == "1":
         conn = config.get_db()
         try:
@@ -665,7 +679,7 @@ def _handle(environ):
                 door_ranges = aggregate.detect_door_events(pairs)
 
         # Monthly stats are lazy-loaded by client JS via ?monthly_stats=1.
-        # Computing them inline adds ~6.7s on a Pi Zero W (full SQL scan over
+        # Computing them inline adds ~1s on a Pi Zero W (SQL scan over the
         # current month's readings + cache lookups). Skipping here drops TTFB.
 
         conn.close()

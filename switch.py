@@ -366,6 +366,26 @@ def _handle(environ):
         )
         _respond("application/json", json.dumps({"power_on": power_on, "html": body_html}))
 
+    # --- Lazy-loaded door events (~0.6s on Pi Zero W) ---
+    # Detection needs raw per-minute rows (10k for 7d) pulled into Python;
+    # that fetch alone costs ~300ms on this hardware, so the main page render
+    # skips it and client JS fetches this, then repaints the chart's fuchsia
+    # door bars. Only the 1d/7d ranges detect door events (30d/monthly would
+    # render them as overlapping pixels).
+    if qs.get("door_events") == "1":
+        door_range = qs.get("range", "7d")
+        door_ranges = []
+        if door_range in ("1d", "7d"):
+            de_now = int(datetime.now().timestamp())
+            de_cutoff = de_now - (86400 if door_range == "1d" else 7 * 86400)
+            conn = config.get_db()
+            try:
+                pairs = config.query_temp_pairs(conn, de_cutoff, de_now)
+            finally:
+                conn.close()
+            door_ranges = aggregate.detect_door_events(pairs)
+        _respond("application/json", json.dumps(door_ranges))
+
     # --- Lazy-loaded monthly stats table (~1s SQL scan on Pi Zero W) ---
     # Same pattern: main page skips it, client JS fetches and swaps into
     # #monthly-stats-body, keeping the scan off the main TTFB.
@@ -513,6 +533,10 @@ def _handle(environ):
     # -----------------------------------------------------------------------
     enable_temp = config.ENABLE_TEMP
 
+    # One connection for the whole render (temp display, schedules, chart) \u2014
+    # get_db()'s schema bootstrap costs ~10ms per open on the Pi Zero W.
+    conn = config.get_db()
+
     # --- Heater state ---
     heater_on = config.read_gpio() == "1"
     status = "on" if heater_on else "off"
@@ -524,9 +548,11 @@ def _handle(environ):
     )
 
     # --- Temperature display ---
+    # Latest cron-logged reading (<=60s old) instead of a live probe read \u2014
+    # a fresh DS18B20 conversion blocks for ~850ms on every page load.
     temp_display = ""
     if enable_temp:
-        temp_c = config.read_temp()
+        temp_c = config.read_temp_cached(conn)
         if temp_c is None:
             temp_display = "Temperature probe not found"
         else:
@@ -565,13 +591,11 @@ def _handle(environ):
     hvac_configured = hvac.is_configured()
 
     # --- Pending schedules ---
-    conn = config.get_db()
     pending_rows = conn.execute(
         "SELECT created_epoch, execute_epoch, action, "
         "COALESCE(device, 'heater'), COALESCE(params, '') "
         "FROM schedules ORDER BY execute_epoch"
     ).fetchall()
-    conn.close()
 
     pending_sched_rows = []
     for created_epoch, execute_epoch, action, device, params in pending_rows:
@@ -637,8 +661,6 @@ def _handle(environ):
     months_data = []
 
     if enable_temp:
-        conn = config.get_db()
-
         # Determine whether to use cached chart data
         chart_from_cache = False
         if _is_valid_month(range_param) and range_param != cur_month_date.strftime("%Y-%m"):
@@ -667,21 +689,13 @@ def _handle(environ):
             ambient_data = live_result["ambient_data"]
             power_data = live_result.get("power_data", [])
 
-            # Door-event detection runs only on the 1d / 7d ranges. It
-            # needs raw per-minute (temp_c, ac_indoor_f) pairs — bucketed
-            # averages would smooth out the 5-15min divergence signal —
-            # so the row count is unbounded by bucket_secs. 7d × 1440 =
-            # ~10k rows is fine on the Pi Zero W; 30d at 43k pushes it
-            # and the events would render as overlapping pixels anyway.
-            if range_param in ("1d", "7d"):
-                pairs = config.query_temp_pairs(conn, chart_cutoff, chart_end_epoch)
-                door_ranges = aggregate.detect_door_events(pairs)
+        # Door events (1d/7d only) are lazy-loaded by client JS via
+        # ?door_events=1 — detection needs ~10k raw per-minute rows pulled
+        # into Python (~0.6s on a Pi Zero W), so it's kept off the main TTFB
+        # like the monthly stats (?monthly_stats=1, ~1s SQL scan) and the
+        # HVAC card (?hvac_state=1, dongle round-trip).
 
-        # Monthly stats are lazy-loaded by client JS via ?monthly_stats=1.
-        # Computing them inline adds ~1s on a Pi Zero W (SQL scan over the
-        # current month's readings + cache lookups). Skipping here drops TTFB.
-
-        conn.close()
+    conn.close()
 
     # --- Render template ---
     template = _get_jinja_env().get_template("index.html")

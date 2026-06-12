@@ -521,6 +521,17 @@ if (data.length > 0) {
   document.getElementById('tempChart').style.display = 'none';
   document.getElementById('noChartData').style.display = 'block';
 }
+{% if range in ("1d", "7d") %}
+// Door events are lazy-loaded (detection scans ~10k raw rows server-side,
+// ~0.6s on the Pi) — the chart renders immediately and the fuchsia bars
+// are painted in once this arrives. doorRanges is the same closure var the
+// doorBand plugin and the tooltip read, so a repaint is all that's needed.
+fetch('switch.py?door_events=1&range={{ range }}').then(function(r){return r.json()}).then(function(d) {
+  if (!d.length || !tempChart) return;
+  doorRanges = d;
+  tempChart.update('none');
+}).catch(function(){});
+{% endif %}
 });
 </script>
 {% endif %}

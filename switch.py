@@ -169,15 +169,14 @@ def _compute_months_data(conn, now_epoch=None):
     }
 
     live_month_meta = [m for m in month_meta if m[5] or m[0] not in cache_map]
-    # Months that ended before the first reading can never produce rows, and
-    # never gain a cache entry either (the monthly cron only rolls the single
-    # previous month; the explicit backfill path refuses empty months) — but
-    # leaving them in the live list pins batch_start at the start of the
-    # 13-month window, making the batch query below scan the entire readings
-    # table (~13s on the Pi Zero W) instead of just the uncached recent
-    # months (~1s). An empty month *inside* the data range still widens the
-    # window the same way until it ages out of the 13-month lookback —
-    # accepted: it takes a full calendar month of downtime to create one.
+    # The monthly cron self-heals cache holes (do_rollup backfills every
+    # uncached older month in the window, empty ones included), so the live
+    # list is normally just the current month. This filter covers the stretch
+    # the cron hasn't healed yet — a fresh install, or months predating the
+    # self-heal feature before its first cron tick. Without it, pre-data
+    # months pin batch_start at the start of the 13-month window and the
+    # batch query below scans the entire readings table (~13s on the
+    # Pi Zero W) instead of just the uncached recent months (~1s).
     first_epoch = config.query_first_epoch(conn)
     if first_epoch is not None:
         live_month_meta = [m for m in live_month_meta if m[3] > first_epoch]

@@ -120,6 +120,16 @@ def _msmart_fans():
     }
 
 
+def _turbo_attr(dev):
+    """The turbo attribute name this msmart-ng exposes — 'turbo' (preferred) or
+    the older 'turbo_mode'. Returns 'turbo' as a harmless default."""
+    if hasattr(dev, "turbo"):
+        return "turbo"
+    if hasattr(dev, "turbo_mode"):
+        return "turbo_mode"
+    return "turbo"
+
+
 async def _open_device():
     """Construct + authenticate an AirConditioner instance against the dongle.
 
@@ -165,6 +175,9 @@ def _device_to_dict(dev):
     target_c = float(dev.target_temperature) if dev.target_temperature is not None else None
     indoor_c = float(dev.indoor_temperature) if dev.indoor_temperature is not None else None
     freeze_on = bool(getattr(dev, "freeze_protection", False))
+    # Turbo (the IR remote's "blast max output" button). Newer msmart-ng exposes
+    # it as `turbo`; older as `turbo_mode`. Read whichever exists.
+    turbo_on = bool(getattr(dev, "turbo", getattr(dev, "turbo_mode", False)))
 
     op_mode = inv_modes.get(dev.operational_mode, str(dev.operational_mode))
     effective_mode = MODE_FREEZE if freeze_on else op_mode
@@ -201,6 +214,7 @@ def _device_to_dict(dev):
         "indoor_c":          indoor_c,
         "indoor_f":          round(indoor_c * 9 / 5 + 32, 1) if indoor_c is not None else None,
         "freeze_protection": freeze_on,
+        "turbo":             turbo_on,
         "power_w":           round(float(power_w), 1) if power_w is not None else None,
         "total_kwh":         round(float(total_kwh), 2) if total_kwh is not None else None,
     }
@@ -299,7 +313,7 @@ def get_state(force=False):
         return None
 
 
-def set_state(power=None, mode=None, target_f=None, fan_speed=None):
+def set_state(power=None, mode=None, target_f=None, fan_speed=None, turbo=None):
     """
     Apply a partial state change. Any None argument keeps the dongle's current value.
 
@@ -307,6 +321,10 @@ def set_state(power=None, mode=None, target_f=None, fan_speed=None):
     shows "FP" and the firmware holds a minimum heat output (~8°C/46°F). When freeze
     mode is set, target/fan/operational_mode are ignored: the unit drives them
     internally. Setting any non-freeze mode automatically clears the freeze flag.
+
+    turbo is the IR remote's "blast max output" function — tri-state (True=on,
+    False=off, None=leave unchanged). It's meaningless in Freeze Prevention, so
+    the freeze branch forces it off and lets the firmware drive itself.
 
     Returns True on success, False on error. On success, both reported and
     commanded views are persisted so the UI can show drift.
@@ -328,11 +346,13 @@ def set_state(power=None, mode=None, target_f=None, fan_speed=None):
     if mode == MODE_FREEZE:
         set_freeze = True
         # The unit handles target/fan/mode internally while in FP. Force power on,
-        # clear the rest so we don't fight the firmware.
+        # clear the rest so we don't fight the firmware. Turbo is meaningless in
+        # FP — never let a turbo arg fight the freeze regulator.
         power = True
         mode = None
         target_f = None
         fan_speed = None
+        turbo = None
     elif mode is not None:
         # User explicitly chose a non-freeze mode → exit FP if it was active.
         set_freeze = False
@@ -343,6 +363,7 @@ def set_state(power=None, mode=None, target_f=None, fan_speed=None):
         "target_f":  float(target_f) if target_f is not None else None,
         "fan_speed": fan_speed if (fan_speed is not None and fan_speed in msmart_fans) else None,
         "freeze":    set_freeze,
+        "turbo":     bool(turbo) if turbo is not None else None,
     }
 
     try:
@@ -362,6 +383,11 @@ def set_state(power=None, mode=None, target_f=None, fan_speed=None):
                 # NB: ignore dev.supports_freeze_protection — capability flags lie on
                 # some units (msmart-ng issue #76); the SetState bit is what counts.
                 dev.freeze_protection = requested["freeze"]
+            if requested["turbo"] is not None:
+                # Same as freeze: send the bit regardless of supports_turbo, which
+                # is unreliable on some units. getattr/setattr handles the
+                # turbo / turbo_mode attribute-name drift across msmart-ng versions.
+                setattr(dev, _turbo_attr(dev), requested["turbo"])
 
             await dev.apply()
             return _device_to_dict(dev)
@@ -384,6 +410,7 @@ def set_state(power=None, mode=None, target_f=None, fan_speed=None):
             "target_c":  post["target_c"]  if requested["target_f"]  is None else _f_to_c(requested["target_f"]),
             "target_f":  post["target_f"]  if requested["target_f"]  is None else round(requested["target_f"], 1),
             "fan_speed": post["fan_speed"] if requested["fan_speed"] is None else requested["fan_speed"],
+            "turbo":     post["turbo"]     if requested["turbo"]     is None else requested["turbo"],
         }
         _save_commanded(commanded)
         return True

@@ -456,6 +456,9 @@ def _handle(environ):
                 mode=hvac_mode if hvac_mode in hvac.ALL_MODES else None,
                 target_f=target_f,
                 fan_speed=qs.get("hvac_fan_speed") if qs.get("hvac_fan_speed") in hvac.ALL_FANS else None,
+                # Checkbox: unchecked submits nothing → False (off); "1" → True.
+                # The form carries full desired state, like the Power/Mode/Fan selects.
+                turbo=(qs.get("hvac_turbo") == "1"),
             )
         _redirect("switch.py")
 

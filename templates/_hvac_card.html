@@ -9,6 +9,7 @@
     Status: <b>{{ "ON" if r.power else "OFF" }}</b>
     {% if r.power %} &middot; Mode: <b>{{ r.mode|capitalize }}</b>
     {% if r.target_f is not none %} &middot; Target: <b>{{ "%.0f"|format(r.target_f) }}&deg;F / {{ "%.1f"|format(r.target_c) }}&deg;C</b>{% endif %}
+    {% if r.turbo %} &middot; <b>Turbo</b>{% endif %}
     {% endif %}
   </h5>
   {% if r.indoor_f is not none %}
@@ -56,6 +57,16 @@
         <option value="{{ val }}"{% if r.fan_speed == val %} selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
+    </div>
+    <div class="col-auto">
+      <label class="form-label mb-0 small d-block">Turbo</label>
+      <div class="form-check">
+        <input type="checkbox" name="hvac_turbo" value="1" id="hvac_turbo"
+               class="form-check-input"{% if r.turbo %} checked{% endif %}>
+        <label class="form-check-label small text-muted" for="hvac_turbo">
+          Max output; unit usually drops it after ~15 min.
+        </label>
+      </div>
     </div>
     <div class="col-auto">
       <button type="submit" class="btn btn-primary btn-sm">Apply</button>

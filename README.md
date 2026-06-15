@@ -255,7 +255,7 @@ The web UI can also control a hangar Durastar/Midea mini-split (and any other Mi
 ### How it works
 - A small WiFi dongle plugs into a USB-shaped port inside the indoor unit's front panel and bridges Midea's serial protocol to a TCP service on port 6444 of the dongle's LAN IP.
 - After a one-time pairing through Midea's cloud, the Pi extracts a local `token` + `key` and from then on talks to the dongle directly on the LAN — no cloud roundtrip per command, and you can firewall the dongle off the internet.
-- The web UI's HVAC card lets you set power, mode (Heat / Cool / Auto / Dry / Fan), target temperature in °F, and fan speed. A one-click "Freeze Prevention preset" button sends Heat / 60°F / Low fan — useful for "keep the hangar from freezing" scenarios.
+- The web UI's HVAC card lets you set power, mode (Heat / Cool / Auto / Dry / Fan), target temperature in °F, fan speed, and a **Turbo** checkbox (the IR remote's "blast max output" function — the unit usually drops it on its own after ~15 min). A one-click "Freeze Prevention preset" button sends Heat / 60°F / Low fan — useful for "keep the hangar from freezing" scenarios.
 - The scheduler accepts HVAC actions alongside heater actions; same `execute_epoch <= now` cron-driven dispatch.
 - The dongle is polled at most once every 30 seconds (cached in `/run/heater-hvac.json`); page loads never block on the network. If the dongle is unreachable, the UI shows the last-known state with a "stale Xs" badge instead of erroring.
 - HVAC activity is logged into `readings.ac_state` every minute and rendered on the chart as a purple band, so you can see HVAC + heater + fan + ambient temperature on one timeline.

@@ -480,6 +480,12 @@ def _diverged(reported, commanded):
     """True iff commanded was set and differs meaningfully from reported."""
     if not reported or not commanded:
         return False
+    # turbo is deliberately excluded. On this Durastar it persists until
+    # explicitly cleared (observed at the hangar 2026-06-15 — it did NOT drop
+    # after ~15 min, contrary to an earlier assumption). It's a one-shot
+    # modifier the UI sets and forgets, so a lingering turbo flag shouldn't
+    # raise a "physical remote used" divergence warning. Also kept out of
+    # per-minute logging (state_for_log) for the same reason.
     fields = ("power", "mode", "fan_speed")
     for f in fields:
         if reported.get(f) != commanded.get(f):

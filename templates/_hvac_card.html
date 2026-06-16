@@ -59,13 +59,10 @@
       </select>
     </div>
     <div class="col-auto">
-      <label class="form-label mb-0 small d-block">Turbo</label>
+      <label class="form-label mb-0 small d-block" for="hvac_turbo">Turbo</label>
       <div class="form-check">
         <input type="checkbox" name="hvac_turbo" value="1" id="hvac_turbo"
                class="form-check-input"{% if r.turbo %} checked{% endif %}>
-        <label class="form-check-label small text-muted" for="hvac_turbo">
-          Max output; unit usually drops it after ~15 min.
-        </label>
       </div>
     </div>
     <div class="col-auto">

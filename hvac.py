@@ -480,16 +480,18 @@ def _diverged(reported, commanded):
     """True iff commanded was set and differs meaningfully from reported."""
     if not reported or not commanded:
         return False
-    # turbo is deliberately excluded. On this Durastar it persists until
+    # turbo is part of drift detection: on this Durastar it persists until
     # explicitly cleared (observed at the hangar 2026-06-15 — it did NOT drop
-    # after ~15 min, contrary to an earlier assumption). It's a one-shot
-    # modifier the UI sets and forgets, so a lingering turbo flag shouldn't
-    # raise a "physical remote used" divergence warning. Also kept out of
-    # per-minute logging (state_for_log) for the same reason.
+    # after ~15 min, disproving the earlier auto-expire assumption). Bool-coerce
+    # both sides so a missing/None turbo key can't trigger spurious drift.
+    # (Still not logged per-minute in state_for_log — it's a momentary user
+    # action, not a sampled signal.)
     fields = ("power", "mode", "fan_speed")
     for f in fields:
         if reported.get(f) != commanded.get(f):
             return True
+    if bool(reported.get("turbo")) != bool(commanded.get("turbo")):
+        return True
     # Compare temps with a 0.5°C tolerance (dongle sometimes rounds half-degrees)
     rt = reported.get("target_c")
     ct = commanded.get("target_c")

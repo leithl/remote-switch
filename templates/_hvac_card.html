@@ -19,7 +19,7 @@
   {% set c = hvac_state.commanded %}
   <p class="mb-1 small text-warning">
     <strong>Last commanded:</strong>
-    {% if c.power %}{{ c.mode|capitalize }}{% if c.target_f is not none %} {{ "%.0f"|format(c.target_f) }}&deg;F{% endif %}, fan {{ c.fan_speed }}{% else %}OFF{% endif %}
+    {% if c.power %}{{ c.mode|capitalize }}{% if c.target_f is not none %} {{ "%.0f"|format(c.target_f) }}&deg;F{% endif %}, fan {{ c.fan_speed }}{% if c.turbo %} + Turbo{% endif %}{% else %}OFF{% endif %}
     &mdash; physical remote may have been used.
   </p>
   {% endif %}

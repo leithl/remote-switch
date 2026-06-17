@@ -12,6 +12,7 @@ pkgs=(
   chart.js
   chartjs-adapter-date-fns
   chartjs-plugin-zoom
+  hammerjs
 )
 
 stale=0

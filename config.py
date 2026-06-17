@@ -405,14 +405,16 @@ def query_readings(conn, since_epoch, until_epoch):
 
 def query_temp_pairs(conn, since_epoch, until_epoch):
     """
-    Return per-minute (epoch, temp_c, ac_indoor_f) rows from both DBs.
+    Return per-minute (epoch, temp_c, ac_indoor_f, ac_power_w) rows from both DBs.
 
     Used for door-event detection — that needs raw 1-minute granularity,
     not bucketed averages, to catch the 5-15 min divergence between the
     floor-level Pi DS18B20 and the ceiling-level unit thermistor when a
-    hangar door opens.
+    hangar door opens. ac_power_w lets the detector suppress windows where
+    the HVAC compressor was running (cooling sinks cold air to the floor,
+    faking the same floor-leads-ceiling signature as a door event).
     """
-    cols = "epoch, temp_c, ac_indoor_f"
+    cols = "epoch, temp_c, ac_indoor_f, ac_power_w"
     if _has_ram(conn):
         sql = (
             f"SELECT {cols} FROM readings WHERE epoch >= ? AND epoch < ?"

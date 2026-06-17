@@ -378,26 +378,44 @@ def detect_door_events(rows,
                        threshold_f=DOOR_THRESHOLD_F,
                        window_min=DOOR_WINDOW_MIN,
                        merge_gap_min=DOOR_MERGE_GAP_MIN,
-                       max_event_min=DOOR_MAX_EVENT_MIN):
+                       max_event_min=DOOR_MAX_EVENT_MIN,
+                       hvac_power_on_w=POWER_ON_THRESHOLD_W):
     """
     Detect hangar-door-open events from rapid floor temp changes that
     aren't matched by the ceiling-mounted unit thermistor.
 
     Args:
-        rows: Iterable of (epoch, temp_c, ac_indoor_f) per-minute, sorted by epoch.
-              temp_c is °C; ac_indoor_f is °F. Either may be None.
+        rows: Iterable of (epoch, temp_c, ac_indoor_f[, ac_power_w]) per-minute,
+              sorted by epoch. temp_c is °C; ac_indoor_f is °F; ac_power_w is the
+              dongle's instantaneous draw (W) or None. Any of temp/indoor may be None.
         threshold_f / window_min / merge_gap_min / max_event_min: see module constants.
+        hvac_power_on_w: a window is suppressed if the compressor drew more than
+              this at any minute in it (see note below).
 
     Returns:
         list of {xMin: epoch_ms, xMax: epoch_ms, peak_f: float, direction: str}
         sorted by xMin. direction is "infiltration" if outdoor air came in
         (floor cooled OR floor warmed both qualify); the sign hints at season.
+
+    Note on HVAC suppression: when the unit is actively cooling, the
+    ceiling-mounted head dumps cold air that sinks to the floor — the Pi drops
+    while the unit thermistor stays flat, which is the *same* floor-leads-ceiling
+    signature as cold-air door infiltration, so it fakes a door event. Active
+    heating is already rejected by the abs() form (ceiling leads), but we suppress
+    on any active compressor regardless of direction. NULL/absent ac_power_w
+    (pre-2026-05-07 rows, or 3-tuple callers) counts as "off" → detection behaves
+    as before for that data.
     """
-    paired = [(e, t, ai) for (e, t, ai) in rows if t is not None and ai is not None]
+    paired = []
+    for row in rows:
+        e, t, ai = row[0], row[1], row[2]
+        p = row[3] if len(row) > 3 else None
+        if t is not None and ai is not None:
+            paired.append((e, t, ai, p))
     if len(paired) < window_min + 1:
         return []
 
-    by_epoch = {e: (t, ai) for (e, t, ai) in paired}
+    by_epoch = {e: (t, ai, p) for (e, t, ai, p) in paired}
     epochs = sorted(by_epoch.keys())
 
     flagged = []  # (epoch, signal_f, signed_floor_delta_f)
@@ -408,8 +426,15 @@ def detect_door_events(rows,
         # 30 minutes ago, not 5.
         if e_now - e_then > window_min * 60 + 30:
             continue
-        t_now, ai_now = by_epoch[e_now]
-        t_then, ai_then = by_epoch[e_then]
+        # Skip windows where the HVAC compressor ran — its cold-air-sink (or
+        # heat-output) divergence is not a door. Any active minute in the window
+        # disqualifies it; a real door coinciding with active HVAC is ambiguous
+        # and we'd rather drop it than false-flag.
+        if any((by_epoch[epochs[j]][2] or 0) > hvac_power_on_w
+               for j in range(i - window_min, i + 1)):
+            continue
+        t_now, ai_now, _ = by_epoch[e_now]
+        t_then, ai_then, _ = by_epoch[e_then]
         floor_delta_f = (t_now - t_then) * 9.0 / 5.0
         ceil_delta_f  = ai_now - ai_then
         signal = abs(floor_delta_f) - abs(ceil_delta_f)

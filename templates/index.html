@@ -520,6 +520,25 @@ if (data.length > 0) {
   var resetBtn = document.getElementById('resetZoom');
   resetBtn.style.display = '';
   resetBtn.addEventListener('click', function() { tempChart.resetZoom(); });
+
+  // Touch shows a tooltip on tap but never clears it (no mouseout on touch),
+  // so it lingers. Dismiss when the tap lands outside the plotting area —
+  // the chart margins or off the canvas entirely; taps on a data region still
+  // inspect/move the tooltip as before.
+  document.addEventListener('pointerdown', function(e) {
+    if (!tempChart) return;
+    var insidePlot = false;
+    if (e.target === tempChart.canvas) {
+      var r = tempChart.canvas.getBoundingClientRect(), ca = tempChart.chartArea;
+      var x = e.clientX - r.left, y = e.clientY - r.top;
+      insidePlot = x >= ca.left && x <= ca.right && y >= ca.top && y <= ca.bottom;
+    }
+    if (!insidePlot) {
+      tempChart.setActiveElements([]);
+      if (tempChart.tooltip) tempChart.tooltip.setActiveElements([], { x: 0, y: 0 });
+      tempChart.update('none');
+    }
+  });
 } else {
   document.getElementById('tempChart').style.display = 'none';
   document.getElementById('noChartData').style.display = 'block';

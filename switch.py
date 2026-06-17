@@ -73,6 +73,27 @@ def _redirect(location):
     raise _Response("303 See Other", [("Location", location)])
 
 
+def _home_redirect(environ):
+    """Redirect back to the main page, preserving the chart range the user was on.
+
+    Action handlers (heater/fan/HVAC/schedule) POST-redirect to switch.py. The
+    submitting form/link doesn't carry ?range=, so a bare redirect snaps the
+    page back to the default 7d view and loses the 1d/30d/monthly selection.
+    Same-origin GET navigations send the full referring URL (default
+    Referrer-Policy is strict-origin-when-cross-origin → full path+query for
+    same origin), so we recover range from there. A missing/foreign/invalid
+    Referer just falls back to the bare page — same as the old behavior.
+    """
+    ref = environ.get("HTTP_REFERER", "")
+    if ref:
+        rng = urllib.parse.parse_qs(
+            urllib.parse.urlparse(ref).query
+        ).get("range", [""])[0]
+        if rng in ("1d", "7d", "30d") or _is_valid_month(rng):
+            _redirect("switch.py?range=" + urllib.parse.quote(rng))
+    _redirect("switch.py")
+
+
 def _respond(content_type, body):
     raise _Response("200 OK", [("Content-Type", content_type)], body)
 
@@ -424,7 +445,7 @@ def _handle(environ):
     state = qs.get("state", "")
     if state in ("0", "1"):
         config.write_gpio(state)
-        _redirect("switch.py")
+        _home_redirect(environ)
 
     # --- Fan manual override ---
     fan_state_raw = qs.get("fan_state", "")
@@ -434,12 +455,12 @@ def _handle(environ):
             config.write_fan_gpio(fan_state_raw)
         except (PermissionError, OSError):
             pass
-        _redirect("switch.py")
+        _home_redirect(environ)
 
     fan_mode_raw = qs.get("fan_mode", "")
     if fan_mode_raw == "auto":
         config.write_fan_mode("auto")
-        _redirect("switch.py")
+        _home_redirect(environ)
 
     # --- HVAC apply (immediate state change for Hangar HVAC) ---
     if qs.get("hvac_apply") == "1" and hvac.is_configured():
@@ -460,7 +481,7 @@ def _handle(environ):
                 # The form carries full desired state, like the Power/Mode/Fan selects.
                 turbo=(qs.get("hvac_turbo") == "1"),
             )
-        _redirect("switch.py")
+        _home_redirect(environ)
 
     # --- Schedule add ---
     now_epoch = int(datetime.now().timestamp())
@@ -516,7 +537,7 @@ def _handle(environ):
                     )
                     conn.commit()
                     conn.close()
-                    _redirect("switch.py")
+                    _home_redirect(environ)
             else:
                 conn = config.get_db()
                 conn.execute(
@@ -527,7 +548,7 @@ def _handle(environ):
                 )
                 conn.commit()
                 conn.close()
-                _redirect("switch.py")
+                _home_redirect(environ)
         except ValueError:
             sched_msg = Markup(
                 '<div class="alert alert-danger alert-sm py-1 mb-2">'
@@ -542,7 +563,7 @@ def _handle(environ):
         conn.execute("DELETE FROM schedules WHERE created_epoch = ?", (cancel_id,))
         conn.commit()
         conn.close()
-        _redirect("switch.py")
+        _home_redirect(environ)
 
     # -----------------------------------------------------------------------
     # Page render

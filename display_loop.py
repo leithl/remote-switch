@@ -30,16 +30,20 @@ from pathlib import Path
 # Allow systemd to invoke us from any working directory.
 sys.path.insert(0, str(Path(__file__).parent))
 
+import backlight        # noqa: E402
 import config           # noqa: E402  (path-modifying import above)
 import display          # noqa: E402
 import display_state    # noqa: E402
 import flashair         # noqa: E402
+import presence         # noqa: E402
 
 
 UPDATE_INTERVAL_SECS      = 5
 UPDATE_INTERVAL_FAST_SECS = 1      # used while a 'Xs ago' counter is on screen
 TOUCH_POLL_INTERVAL_SECS  = 0.05   # 20 Hz touch polling between display refreshes
 TOUCH_DEBOUNCE_SECS      = 1.0     # ignore taps within this window of the last one
+PRESENCE_POLL_SECS       = 1.0     # how often to read the mmWave sensor (shared I2C bus)
+IDLE_TIMEOUT_DEFAULT_SECS = 120    # backlight sleeps this long after last presence/touch
 DRY_RUN_OUT              = Path("/tmp/display-current.png")
 
 # ST7796U control pins on the Haldzemo 3.5" board. The board's silkscreen
@@ -54,6 +58,8 @@ SPI_DEV  = 0    # SPI0 CE0 — display chip select (BCM 8, Display pin 3 / LCD_C
 _stop = False
 _redraw_now = False    # set by _poll_touch when an action fires; consumed by _sleep_with_touch
 _last_tap_epoch = 0.0
+_awake = True          # backlight + render state. Always True when motion-wake is off.
+_last_activity = 0.0   # epoch of last presence detection or touch — the rolling idle timer
 
 
 def _on_signal(_signum, _frame):
@@ -160,17 +166,19 @@ def _toggle_heater():
         sys.stderr.write(f"display: heater toggle failed: {e}\n")
 
 
-def _poll_touch(touch_reader):
-    """One tick of touch polling. Triggers heater toggle if a debounced
-    tap lands inside HEATER_BUTTON_RECT.
+def _poll_touch(touch_reader, bl=None):
+    """One tick of touch polling.
 
-    Capacitive controllers do their own debouncing and only report active
-    contacts, so the per-poll cost is one I2C block-read returning quickly
-    when no finger is on the panel. Coordinates come back pre-calibrated
-    in 480×320 screen space — direct hit-test against HEATER_BUTTON_RECT,
-    no scaling needed.
+    A tap is always 'activity' (resets the idle timer). If the screen is
+    asleep, the tap only wakes it — swallowed so it doesn't also toggle the
+    heater (tap-to-wake, then tap-to-act, like a phone). When awake, a tap
+    inside HEATER_BUTTON_RECT toggles the engine-block heater.
+
+    Capacitive controllers debounce internally and only report active
+    contacts, so the per-poll cost is one quick I2C block-read. Coordinates
+    come back pre-calibrated in 480×320 space — direct hit-test, no scaling.
     """
-    global _last_tap_epoch
+    global _last_tap_epoch, _redraw_now, _last_activity
     try:
         pt = touch_reader.read_touch()
     except Exception as e:
@@ -181,14 +189,66 @@ def _poll_touch(touch_reader):
     now = time.time()
     if now - _last_tap_epoch < TOUCH_DEBOUNCE_SECS:
         return  # still in cooldown from previous tap
+    _last_tap_epoch = now
+    _last_activity = now
+
+    # Tap-to-wake: a tap on a sleeping screen only wakes it (swallowed).
+    if bl is not None and not _awake:
+        _wake(bl)
+        return
 
     x_px, y_px = pt
     import touch  # local module; cheap re-import is cached
     if touch.point_in_rect(x_px, y_px, display.HEATER_BUTTON_RECT):
-        global _redraw_now
-        _last_tap_epoch = now
         _toggle_heater()
         _redraw_now = True   # wake _sleep_with_touch so the button color flips immediately
+
+
+def _wake(bl):
+    """Wake the screen: backlight on + force an immediate redraw. No-op if
+    already awake."""
+    global _awake, _redraw_now
+    if _awake:
+        return
+    _awake = True
+    _redraw_now = True
+    if bl is not None:
+        bl.wake()
+
+
+def _sleep(bl):
+    """Sleep the screen: backlight off. The render loop stops pushing frames
+    while dark. No-op if already asleep."""
+    global _awake
+    if not _awake:
+        return
+    _awake = False
+    if bl is not None:
+        bl.sleep()
+
+
+def _apply_presence(presence_sensor, bl, idle_timeout):
+    """One presence poll. Wakes on detection; sleeps after `idle_timeout`
+    seconds with no presence AND no touch. Rolling — every detection resets
+    the timer, so walking around keeps it awake; the countdown only starts
+    from the last time anyone was seen.
+
+    An unavailable sensor (unwired, or failed mid-run) fails safe to
+    backlight-on — a dead sensor must never leave the hangar screen dark.
+    """
+    global _last_activity
+    if presence_sensor is None:
+        return  # motion-wake disabled → never manage the backlight
+    det = presence_sensor.detected()
+    if det is None:
+        _wake(bl)            # sensor dead → fail-safe on
+        return
+    now = time.time()
+    if det:
+        _last_activity = now
+        _wake(bl)
+    elif _awake and (now - _last_activity) > idle_timeout:
+        _sleep(bl)
 
 
 def _flashair_mtime_ns():
@@ -202,21 +262,31 @@ def _flashair_mtime_ns():
         return 0
 
 
-def _sleep_with_touch(secs, touch_reader, fa_mtime_baseline):
+def _sleep_with_touch(secs, touch_reader, fa_mtime_baseline,
+                      presence_sensor=None, bl=None,
+                      idle_timeout=IDLE_TIMEOUT_DEFAULT_SECS):
     """Sleep for `secs` total, polling touch every TOUCH_POLL_INTERVAL_SECS
-    and breaking early on SIGTERM, on a tap requesting an immediate redraw,
-    or when the FlashAir status file changes (daemon wrote new state)."""
+    and the mmWave sensor every PRESENCE_POLL_SECS. Breaks early on SIGTERM,
+    on a tap/motion requesting an immediate redraw, or — only while awake —
+    when the FlashAir status file changes (daemon wrote new state). While
+    asleep we keep polling presence but skip the data-driven refresh: nobody's
+    looking at a dark panel."""
     global _redraw_now
     chunks = int(secs / TOUCH_POLL_INTERVAL_SECS)
+    last_presence = 0.0
     for _ in range(chunks):
         if _stop:
             return
         if touch_reader is not None:
-            _poll_touch(touch_reader)
+            _poll_touch(touch_reader, bl)
+        now = time.time()
+        if presence_sensor is not None and (now - last_presence) >= PRESENCE_POLL_SECS:
+            last_presence = now
+            _apply_presence(presence_sensor, bl, idle_timeout)
         if _redraw_now:
             _redraw_now = False
             return
-        if _flashair_mtime_ns() != fa_mtime_baseline:
+        if _awake and _flashair_mtime_ns() != fa_mtime_baseline:
             return
         time.sleep(TOUCH_POLL_INTERVAL_SECS)
 
@@ -231,12 +301,33 @@ def _run_scan():
     touch.run_scan()
 
 
+def _run_presence_test():
+    """Print mmWave sensor readings for 30s so you can aim it and confirm
+    detection/range before enabling. Mirrors --scan for the touch chip."""
+    ps = presence.PresenceSensor()
+    if not ps.available:
+        sys.stderr.write(
+            "presence: sensor unavailable — check wiring, the DFRobot_C4001 "
+            "lib, and the I2C address (i2cdetect -y 1 should show 2a)\n"
+        )
+        return
+    print("presence: reading every 0.5s for 30s (Ctrl-C to stop)...")
+    end = time.time() + 30
+    while time.time() < end and not _stop:
+        print(ps.read_raw())
+        time.sleep(0.5)
+
+
 def main():
     signal.signal(signal.SIGTERM, _on_signal)
     signal.signal(signal.SIGINT, _on_signal)
 
     if "--scan" in sys.argv:
         _run_scan()
+        return
+
+    if "--presence-test" in sys.argv:
+        _run_presence_test()
         return
 
     device = None if _is_dry_run() else _open_device()
@@ -253,17 +344,40 @@ def main():
         # eyeball it". os._exit skips Python's cleanup chain.
         os._exit(0 if ok else 1)
 
+    # Motion-wake backlight (opt-in via PRESENCE_ENABLED=1). Both objects
+    # degrade to no-ops if their hardware/libs are missing, so the display
+    # behaves exactly as before when the sensor isn't wired.
+    env = config.load_env()
+    presence_sensor = bl = None
+    if env.get("PRESENCE_ENABLED") == "1" and not _is_dry_run():
+        bl = backlight.Backlight(
+            gpio=int(env.get("BACKLIGHT_GPIO", backlight.GPIO_DEFAULT)),
+            fade_secs=float(env.get("BACKLIGHT_FADE_SECS",
+                                    backlight.FADE_SECS_DEFAULT)),
+        )
+        presence_sensor = presence.PresenceSensor(env)
+    idle_timeout = int(env.get("IDLE_TIMEOUT_SECS", IDLE_TIMEOUT_DEFAULT_SECS))
+    global _awake, _last_activity
+    _awake = True
+    _last_activity = time.time()
+
     try:
         while not _stop:
-            _, interval = _push(device, ssid_pattern)
+            if _awake:
+                _, interval = _push(device, ssid_pattern)
+            else:
+                interval = UPDATE_INTERVAL_SECS  # dark — just poll for a wake
             # Capture mtime after rendering — the frame on screen reflects whatever
             # was in the file at that moment, so a later mtime means there's new
             # state to render.
             fa_mtime = _flashair_mtime_ns()
-            _sleep_with_touch(interval, touch_reader, fa_mtime)
+            _sleep_with_touch(interval, touch_reader, fa_mtime,
+                              presence_sensor, bl, idle_timeout)
     finally:
         if touch_reader is not None:
             touch_reader.close()
+        if bl is not None:
+            bl.close()
 
 
 if __name__ == "__main__":

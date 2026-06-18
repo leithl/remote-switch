@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hangar motion-wake backlight — install</title>
+  <style>
+    :root {
+      --bg: #0d0e10;
+      --panel: #16181d;
+      --rule: #2a2d33;
+      --fg: #e6e7eb;
+      --fg-dim: #9b9ea6;
+      --fg-very-dim: #6a6d75;
+      --accent: #6ec8ff;
+      --warn: #ffb44a;
+      --bad: #ff6258;
+      --ok: #84d99c;
+      --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 1.5rem;
+      background: var(--bg);
+      color: var(--fg);
+      font: 15px/1.55 var(--sans);
+      max-width: 880px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    h1 {
+      font-size: 1.65rem;
+      margin: 0 0 0.25rem;
+    }
+    h2 {
+      font-size: 1.15rem;
+      margin: 2rem 0 0.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--rule);
+      color: var(--accent);
+    }
+    h3 {
+      font-size: 1rem;
+      margin: 1.25rem 0 0.5rem;
+      color: var(--fg-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .lede {
+      color: var(--fg-dim);
+      margin: 0 0 1.5rem;
+    }
+    code, pre, kbd {
+      font-family: var(--mono);
+      font-size: 0.9em;
+    }
+    code {
+      background: var(--panel);
+      padding: 0.1em 0.35em;
+      border-radius: 3px;
+    }
+    pre {
+      background: var(--panel);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      padding: 0.75rem 1rem;
+      overflow-x: auto;
+      margin: 0.5rem 0 1rem;
+    }
+    pre code { background: none; padding: 0; }
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.7rem;
+      margin: 0.4rem 0;
+      padding: 0.35rem 0;
+    }
+    .step input[type=checkbox] {
+      flex: 0 0 auto;
+      width: 22px;
+      height: 22px;
+      margin-top: 1px;
+      cursor: pointer;
+      accent-color: var(--ok);
+    }
+    .step-body {
+      flex: 1;
+      min-width: 0;
+    }
+    .step.done .step-body {
+      color: var(--fg-very-dim);
+      text-decoration: line-through;
+    }
+    .step.done pre, .step.done code {
+      opacity: 0.5;
+    }
+    .note {
+      border-left: 3px solid var(--warn);
+      background: var(--panel);
+      padding: 0.65rem 0.9rem;
+      margin: 0.75rem 0;
+      border-radius: 0 4px 4px 0;
+      font-size: 0.93em;
+    }
+    .note.danger { border-left-color: var(--bad); }
+    .note.tip    { border-left-color: var(--accent); }
+    .note strong { color: var(--warn); }
+    .note.danger strong { color: var(--bad); }
+    .note.tip strong    { color: var(--accent); }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 0.5rem 0 1rem;
+      font-size: 0.93em;
+    }
+    th, td {
+      border-bottom: 1px solid var(--rule);
+      padding: 0.45rem 0.6rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { color: var(--fg-dim); font-weight: 600; font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.05em; }
+    td code { font-size: 0.95em; }
+    .pinmap td:nth-child(1) { font-weight: 600; }
+    .pinmap td:nth-child(2),
+    .pinmap td:nth-child(3) { font-family: var(--mono); color: var(--accent); }
+    .pinmap tr.power td:nth-child(2),
+    .pinmap tr.power td:nth-child(3) { color: var(--warn); }
+    .pinmap tr.gnd td:nth-child(2),
+    .pinmap tr.gnd td:nth-child(3) { color: var(--fg-dim); }
+    .reset {
+      margin-top: 2.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--rule);
+      text-align: center;
+    }
+    .reset button {
+      background: var(--panel);
+      color: var(--fg-dim);
+      border: 1px solid var(--rule);
+      padding: 0.4rem 0.9rem;
+      border-radius: 4px;
+      font: inherit;
+      font-size: 0.85em;
+      cursor: pointer;
+    }
+    .reset button:hover {
+      background: var(--rule);
+      color: var(--fg);
+    }
+    .progress {
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      padding: 0.6rem 0;
+      margin: -1.5rem -1.5rem 1.5rem;
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+      border-bottom: 1px solid var(--rule);
+      font-size: 0.85em;
+      color: var(--fg-dim);
+      z-index: 10;
+    }
+    .progress-bar {
+      height: 3px;
+      background: var(--rule);
+      border-radius: 2px;
+      margin-top: 0.35rem;
+      overflow: hidden;
+    }
+    .progress-bar > div {
+      height: 100%;
+      background: var(--ok);
+      transition: width 0.3s ease;
+    }
+    @media print {
+      .progress, .reset { display: none; }
+      body { color: black; background: white; max-width: none; }
+      h2 { color: black; border-top-color: #ccc; }
+      h3, .lede { color: #444; }
+      pre, code { background: #f4f4f4; color: black; }
+      .note { background: #fafafa; }
+      .step.done .step-body { text-decoration: none; color: #888; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="progress">
+  <span id="progress-text">0 of 0 steps done</span>
+  <div class="progress-bar"><div id="progress-fill" style="width: 0%"></div></div>
+</div>
+
+<h1>Hangar motion-wake backlight — install</h1>
+<p class="lede">
+  Adds a <strong>DFRobot C4001 (SEN0610)</strong> 24&nbsp;GHz mmWave sensor so the
+  3.5" dashboard's backlight sleeps when the hangar's empty and wakes on motion.
+  Assumes the <a href="display-install.html">display is already installed</a> and
+  running. Check off each step — progress is saved in this browser.
+</p>
+
+<div class="note tip">
+  <strong>Why bother:</strong> the IPS panel has no burn-in, so this is purely
+  about LED-backlight hours + heat on an always-on display. The feature is
+  opt-in (<code>PRESENCE_ENABLED=1</code>) and <strong>fail-safe</strong> — an
+  unwired or dead sensor leaves the backlight <em>on</em>, never dark.
+</div>
+
+<h2>Parts check</h2>
+<div class="step">
+  <input type="checkbox" id="p1">
+  <div class="step-body"><label for="p1"><strong>DFRobot Gravity C4001 (SEN0610, 12&nbsp;m)</strong> — the "12 Meters, I2C &amp; UART" variant, <em>not</em> the 25&nbsp;m SEN0609. Ships with a Gravity 4-pin (PH2.0) cable.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="p2">
+  <div class="step-body"><label for="p2"><strong>Female-to-female jumper wires</strong> — 4 for the sensor (or use the Gravity cable + adapters), plus the one already on the panel's LED pin.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="p3">
+  <div class="step-body"><label for="p3"><strong>(Maybe) a logic-level N-MOSFET</strong> (2N7000 / AO3400) + a 10&nbsp;kΩ resistor — only if the backlight pin draws too much for a GPIO (see the drive test below). Worth having on hand.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="p4">
+  <div class="step-body"><label for="p4">Sensor inspected — no bent pins, board reads "C4001" / "DFR1156" / SEN0610.</label></div>
+</div>
+
+<h2>Set the DIP switches — I2C mode + address</h2>
+<p>The C4001 talks I2C <em>or</em> UART, set by <strong>two DIP switches on the back of the board</strong> (not a slide switch — the silkscreen labels each one). We use I2C so the sensor shares the bus the touch chip already uses (no extra GPIO).</p>
+<div class="step">
+  <input type="checkbox" id="m1">
+  <div class="step-body"><label for="m1"><strong>Mode switch → I2C.</strong> Set the <code>I2C / UART</code> switch to the <strong>I2C</strong> side. This is the one that matters — DFRobot ships these to be set by hand, so <em>don't assume it's already on I2C</em>. On UART the sensor never appears on the bus and <code>i2cdetect</code> won't see it.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="m2">
+  <div class="step-body"><label for="m2"><strong>Address switch → <code>0x2A</code>.</strong> The second switch picks the I2C address, <code>0x2A</code> or <code>0x2B</code>. Leave it on the <code>0x2A</code> default — that's what the code expects.</label></div>
+</div>
+<div class="note tip">
+  <strong>If <code>i2cdetect</code> later shows <code>2b</code> instead of <code>2a</code></strong>, don't reopen the case — just set <code>PRESENCE_I2C_ADDR=0x2B</code> in <code>.env</code> and restart the display. The address switch isn't critical; the mode switch is.
+</div>
+
+<h2>Power down before wiring</h2>
+<div class="note danger">
+  <strong>Important:</strong> shut the Pi cleanly before touching the header. GPIO isn't hot-pluggable, and a one-pin slip shorts 3V3 → fry.
+</div>
+<div class="step">
+  <input type="checkbox" id="d1">
+  <div class="step-body"><label for="d1">SSH in and shut down cleanly.<pre><code>ssh pi.vpn
+sudo systemctl poweroff</code></pre>Wait for the green ACT LED to stop blinking, then unplug power.</label></div>
+</div>
+
+<h2>Wiring — sensor onto the I2C bus</h2>
+<p>The C4001 hangs on the <strong>same two I2C lines as the touch chip</strong> — wire it in parallel. Address <code>0x2A</code> doesn't clash with the touch chip's <code>0x38</code>. Pi Zero W 40-pin header; <strong>3.3V logic and 3V3 power throughout</strong>.</p>
+
+<table class="pinmap">
+  <thead>
+    <tr><th>C4001 pin</th><th>Pi BCM</th><th>Pi header pin</th><th>Notes</th></tr>
+  </thead>
+  <tbody>
+    <tr class="power"><td>+ (VCC)</td><td>3V3</td><td>1 / 17</td><td>Power. Both 3V3 pins are taken (DS18B20 on 1, panel on 17) — tap the breadboard 3V3 rail you already have.</td></tr>
+    <tr class="gnd"><td>− (GND)</td><td>GND</td><td>6 / 9 / 14 / …</td><td>Any GND pin (or the breadboard GND rail).</td></tr>
+    <tr><td>D/T (SDA)</td><td>BCM 2</td><td>3</td><td>Data line. Shared with the FT6336U touch — wire in parallel onto the same line.</td></tr>
+    <tr><td>C/R (SCL)</td><td>BCM 3</td><td>5</td><td>Clock line. Shared with touch.</td></tr>
+  </tbody>
+</table>
+<div class="note tip">
+  <strong>The board prints <code>+ &minus; C/R D/T</code>, not SDA/SCL.</strong> In I2C mode <code>D/T</code> is data (SDA) and <code>C/R</code> is clock (SCL) — the same two pins double as UART TX/RX when the mode switch is on UART. It's a 4-pin Gravity connector: there's no separate OUT/IO pin to leave unconnected. <strong>Power it at 3.3V, not 5V</strong> (the board accepts either) so its logic stays Pi-safe.
+</div>
+
+<h2>Wiring — move the backlight to GPIO18</h2>
+<p>The panel's LED/backlight pin is currently jumpered to the 3V3 rail (always on). Move that jumper's Pi end to <strong>GPIO18</strong> so software can switch it.</p>
+
+<table class="pinmap">
+  <thead>
+    <tr><th>Panel pin</th><th>From</th><th>To (Pi BCM)</th><th>Pi header pin</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>LED / BL</td><td>3V3 rail</td><td>BCM 18</td><td>12</td></tr>
+  </tbody>
+</table>
+
+<div class="note danger">
+  <strong>Drive test first — does the LED pin need a transistor?</strong> A GPIO can source only ~16&nbsp;mA. Two ways to check before committing:
+  <ol>
+    <li><strong>Measure:</strong> multimeter in series on the old VCC→LED jumper, powered on. <code>&lt; ~16&nbsp;mA</code> → GPIO drives it directly (it's a logic-level enable). More than that → it needs a transistor.</li>
+    <li><strong>Observe:</strong> after wiring to GPIO18, run the on/off test (below). Full brightness when on → direct drive is fine. Noticeably dim → too much current for the GPIO.</li>
+  </ol>
+  <strong>If it needs a transistor:</strong> a logic-level N-MOSFET (2N7000 / AO3400) low-side on the backlight's ground return — gate ← GPIO18 (100&nbsp;Ω in series), source ← GND, drain ← the LED/return pin, 10&nbsp;kΩ gate→GND pulldown. PWM on the gate then dims as normal.
+</div>
+
+<div class="step">
+  <input type="checkbox" id="w1">
+  <div class="step-body"><label for="w1">Sensor's 4 wires connected (<code>+</code>→3V3, <code>−</code>→GND, <code>D/T</code>→pin&nbsp;3, <code>C/R</code>→pin&nbsp;5), double-checked against the table.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="w2">
+  <div class="step-body"><label for="w2">Backlight LED jumper moved from the 3V3 rail to <strong>GPIO18 / pin&nbsp;12</strong>.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="w3">
+  <div class="step-body"><label for="w3">No wire touching an adjacent header pin (a one-pin slip grounds 3V3).</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="w4">
+  <div class="step-body"><label for="w4">Pi powered back on, green ACT LED blinking normally. <strong>The screen will be dark until step "First light"</strong> — that's expected now that LED is on a GPIO that defaults low.</label></div>
+</div>
+
+<h2>Confirm both chips on the bus</h2>
+<p>I2C is already enabled (the touch chip uses it) — no <code>raspi-config</code> needed.</p>
+<div class="step">
+  <input type="checkbox" id="b1">
+  <div class="step-body"><label for="b1">Both addresses show up.<pre><code>ssh pi.vpn
+i2cdetect -y 1</code></pre>You should see <code>2a</code> (the C4001) and <code>38</code> (the touch chip) in the grid. If <code>2a</code> is missing, re-check SDA/SCL and the I2C-mode switch.</label></div>
+</div>
+
+<h2>Install the sensor library</h2>
+<div class="step">
+  <input type="checkbox" id="i1">
+  <div class="step-body"><label for="i1"><code>gpiozero</code> (the backlight driver) ships with Raspberry Pi OS — confirm it imports.<pre><code>python3 -c "import gpiozero; print('ok')"</code></pre></label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="i2">
+  <div class="step-body"><label for="i2">Get the DFRobot C4001 Python library and put it where <code>display_loop.py</code> can import it (it adds its own dir to <code>sys.path</code>, so dropping the file alongside it is simplest).<pre><code>cd /tmp
+git clone https://github.com/DFRobot/DFRobot_C4001
+sudo cp DFRobot_C4001/python/raspberrypi/DFRobot_C4001.py \
+        /usr/lib/cgi-bin/remote-switch/</code></pre>The library imports <code>serial</code> (pyserial) and <code>smbus</code> at the top even on the I2C path, so install both or the import fails with <code>No module named 'serial'</code>:<pre><code>sudo apt-get install -y python3-serial python3-smbus</code></pre>If the lib imports other files in that folder, copy those too. (Missing lib is harmless — the display just runs without motion-wake.)</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="i3">
+  <div class="step-body"><label for="i3">Pull the branch with <code>presence.py</code> / <code>backlight.py</code> / the updated <code>display_loop.py</code> (as the <code>leith</code> user — never <code>sudo git pull</code>, it changes ownership).<pre><code>cd /usr/lib/cgi-bin/remote-switch
+git pull</code></pre></label></div>
+</div>
+
+<h2>Aim &amp; tune</h2>
+<p>The mmWave beam is a forward lobe — long down the centerline, wide up close. Point it down the length of the hangar. Use the live readout to confirm coverage and pick the mounting angle.</p>
+<div class="step">
+  <input type="checkbox" id="t1">
+  <div class="step-body"><label for="t1">Run the test dump (no service changes needed — it reads the sensor directly):<pre><code>cd /usr/lib/cgi-bin/remote-switch
+python3 display_loop.py --presence-test</code></pre>Prints a line every 0.5s for 30s, e.g. <code>{'available': True, 'detected': True, 'targets': 1, 'range': 4.2, 'speed': 0.8}</code>.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="t2">
+  <div class="step-body"><label for="t2">Walk the hangar while it runs — confirm <code>detected</code> flips to <code>True</code> as far out as you need (out toward the door for the full ~12&nbsp;m). Adjust the mount angle and re-run until coverage looks right.</label></div>
+</div>
+<div class="note tip">
+  <strong>Default mode is <code>motion</code></strong> (12&nbsp;m, whole hangar). A motionless person reads as no-target — the rolling idle timeout bridges that. Switch to <code>PRESENCE_MODE=presence</code> for still-presence holding, but only to ~8&nbsp;m.
+</div>
+
+<h2>Enable it</h2>
+<div class="step">
+  <input type="checkbox" id="e1">
+  <div class="step-body"><label for="e1">Add the knobs to <code>.env</code> (only <code>PRESENCE_ENABLED=1</code> is required; the rest are defaults shown for reference):<pre><code>sudo nano /usr/lib/cgi-bin/remote-switch/.env</code></pre><pre><code>PRESENCE_ENABLED=1
+# PRESENCE_MODE=motion        # motion=12m | presence=8m incl. still
+# IDLE_TIMEOUT_SECS=120       # rolling: resets on every motion/touch
+# BACKLIGHT_GPIO=18
+# BACKLIGHT_FADE_SECS=0.4     # 0 = instant
+# PRESENCE_I2C_ADDR=0x2A</code></pre></label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="e2">
+  <div class="step-body"><label for="e2">Restart the display service (it does <em>not</em> auto-reload).<pre><code>sudo systemctl restart display
+sudo systemctl status display</code></pre>Status <code>active (running)</code>; the journal should print <code>presence: C4001 ready (mode=motion, addr=0x2a)</code> and <code>backlight: …</code> only if there's a problem.</label></div>
+</div>
+
+<h2>First light &amp; behaviour check</h2>
+<div class="step">
+  <input type="checkbox" id="v1">
+  <div class="step-body"><label for="v1"><strong>Wake:</strong> walk in front of the sensor — the backlight fades on within ~1s and the dashboard shows the current frame.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="v2">
+  <div class="step-body"><label for="v2"><strong>Sleep:</strong> step out of range and stay clear — the backlight fades off after <code>IDLE_TIMEOUT_SECS</code> (default 120s). Watch the journal: <code>journalctl -fu display</code>.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="v3">
+  <div class="step-body"><label for="v3"><strong>Rolling timer:</strong> walk around continuously for &gt;2&nbsp;min — it should stay on the whole time (each detection resets the countdown).</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="v4">
+  <div class="step-body"><label for="v4"><strong>Tap-to-wake:</strong> with the screen dark, tap it — it should just wake (the heater must <em>not</em> toggle). Tap again once it's lit — now it toggles the heater as normal.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="v5">
+  <div class="step-body"><label for="v5"><strong>Fail-safe:</strong> unplug the sensor's SDA (or power) briefly — within ~10s the backlight should force <em>on</em> and stay on (a dead sensor never leaves the screen dark). Reconnect to resume normal behaviour.</label></div>
+</div>
+<div class="step">
+  <input type="checkbox" id="v6">
+  <div class="step-body"><label for="v6"><strong>Reboot test:</strong> <code>sudo reboot</code> — after boot the screen comes up on (then sleeps after the timeout if the hangar's empty).</label></div>
+</div>
+
+<h2>Tuning reference</h2>
+<table>
+  <thead><tr><th>Knob (.env)</th><th>Default</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td><code>PRESENCE_ENABLED</code></td><td>off</td><td><code>1</code> turns the whole feature on. Unset → display behaves as before (always on).</td></tr>
+    <tr><td><code>PRESENCE_MODE</code></td><td><code>motion</code></td><td><code>motion</code> = SPEED_MODE, ~12&nbsp;m moving targets. <code>presence</code> = EXIST_MODE, ~8&nbsp;m incl. still.</td></tr>
+    <tr><td><code>IDLE_TIMEOUT_SECS</code></td><td><code>120</code></td><td>Backlight sleeps this long after the last motion <em>or</em> touch. Rolling.</td></tr>
+    <tr><td><code>BACKLIGHT_GPIO</code></td><td><code>18</code></td><td>Pin driving the LED. Hardware-PWM on 18/12/13/19.</td></tr>
+    <tr><td><code>BACKLIGHT_FADE_SECS</code></td><td><code>0.4</code></td><td>Fade duration on wake/sleep. <code>0</code> = instant.</td></tr>
+    <tr><td><code>PRESENCE_I2C_ADDR</code></td><td><code>0x2A</code></td><td>C4001 I2C address (some boards ship <code>0x2B</code>).</td></tr>
+  </tbody>
+</table>
+
+<h2>Troubleshooting cheat-sheet</h2>
+<table>
+  <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Screen never sleeps</td>
+      <td>Sensor unavailable → fail-safe-on, or constant detections</td>
+      <td>Journal: <code>presence: … unavailable</code> means lib/wiring. Otherwise something's moving in-beam (HVAC airflow?) — narrow the aim.</td>
+    </tr>
+    <tr>
+      <td>Screen never wakes</td>
+      <td>Sensor reading but mis-aimed, or backlight not switching</td>
+      <td><code>--presence-test</code> to confirm detection; then check the LED pin actually moved to GPIO18 and the drive test passed.</td>
+    </tr>
+    <tr>
+      <td><code>2a</code> missing from <code>i2cdetect</code></td>
+      <td>SDA/SCL swapped, mode switch on UART, or no power</td>
+      <td>Re-check pins 3/5, set the board to I2C, confirm 3V3 on VCC.</td>
+    </tr>
+    <tr>
+      <td>Backlight dim, not full</td>
+      <td>LED pin sources more than a GPIO can drive</td>
+      <td>Add the N-MOSFET (see the drive-test note).</td>
+    </tr>
+    <tr>
+      <td><code>presence: DFRobot_C4001 lib unavailable</code></td>
+      <td>Library file missing, or its <code>pyserial</code>/<code>smbus</code> deps aren't installed (the message names the missing one, e.g. <code>No module named 'serial'</code>)</td>
+      <td>Copy <code>DFRobot_C4001.py</code> into <code>/usr/lib/cgi-bin/remote-switch/</code>, and install the deps: <code>sudo apt-get install -y python3-serial python3-smbus</code>.</td>
+    </tr>
+    <tr>
+      <td>Wakes/sleeps too eagerly</td>
+      <td>Timeout too short, or beam catching the apron through an open door</td>
+      <td>Raise <code>IDLE_TIMEOUT_SECS</code>; aim away from the door line.</td>
+    </tr>
+    <tr>
+      <td>Tapping a dark screen toggles the heater</td>
+      <td>Running an old <code>display_loop.py</code> without tap-to-wake</td>
+      <td><code>git pull</code> the branch with this feature, restart <code>display</code>.</td>
+    </tr>
+    <tr>
+      <td>Heater toggle / display dies after enabling</td>
+      <td>—</td>
+      <td>Set <code>PRESENCE_ENABLED</code> unset and restart: the feature is fully opt-in, so this isolates it instantly.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Files in this repo</h2>
+<ul>
+  <li><code>presence.py</code> — DFRobot C4001 I2C wrapper; <code>detected() → bool|None</code></li>
+  <li><code>backlight.py</code> — gpiozero PWM on the LED GPIO; <code>wake()</code> / <code>sleep()</code> with fade</li>
+  <li><code>display_loop.py</code> — wake/sleep state machine + <code>--presence-test</code></li>
+  <li><code>.env.example</code> — the <code>PRESENCE_*</code> / <code>BACKLIGHT_*</code> knobs</li>
+  <li><code>docs/motion-wake-install.html</code> — this file</li>
+</ul>
+
+<div class="reset">
+  <button id="reset-btn">Reset progress</button>
+</div>
+
+<script>
+(function() {
+  const KEY = 'hangar-motion-wake-install-progress';
+  const boxes = document.querySelectorAll('input[type=checkbox]');
+  const text = document.getElementById('progress-text');
+  const fill = document.getElementById('progress-fill');
+  const reset = document.getElementById('reset-btn');
+
+  // Restore
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY) || '{}');
+    boxes.forEach(b => {
+      if (saved[b.id]) {
+        b.checked = true;
+        b.closest('.step').classList.add('done');
+      }
+    });
+  } catch (e) {}
+
+  function update() {
+    const state = {};
+    let done = 0;
+    boxes.forEach(b => {
+      state[b.id] = b.checked;
+      if (b.checked) done++;
+      b.closest('.step').classList.toggle('done', b.checked);
+    });
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    text.textContent = `${done} of ${boxes.length} steps done`;
+    fill.style.width = `${(done / boxes.length) * 100}%`;
+  }
+
+  boxes.forEach(b => b.addEventListener('change', update));
+  reset.addEventListener('click', () => {
+    if (confirm('Reset all checkboxes?')) {
+      try { localStorage.removeItem(KEY); } catch (e) {}
+      boxes.forEach(b => { b.checked = false; });
+      update();
+    }
+  });
+  update();
+})();
+</script>
+
+</body>
+</html>

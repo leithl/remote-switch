@@ -317,13 +317,14 @@ The 3.5" IPS dashboard runs 24/7. To save LED-backlight hours (and heat), an opt
 - **Backlight:** move the panel's LED pin from VCC to **GPIO18**. If that pin draws more than ~16 mA, drive it through a small N-channel MOSFET (gate←GPIO18, drain←LED, source←GND) rather than directly.
 
 ### Setup
-1. Install the sensor library on the Pi:
+1. Install the sensor library and its Python deps on the Pi:
    ```bash
    git clone https://github.com/DFRobot/DFRobot_C4001
    # put its python/raspberrypi dir on PYTHONPATH, or copy DFRobot_C4001.py
    # next to display_loop.py
+   sudo apt-get install -y python3-serial python3-smbus
    ```
-   `gpiozero` (for the backlight) ships with Raspberry Pi OS.
+   `DFRobot_C4001.py` imports `serial` (pyserial) and `smbus` at the top even on the I2C path, so both must be present. `gpiozero` (for the backlight) ships with Raspberry Pi OS.
 2. Confirm both chips are on the bus: `i2cdetect -y 1` → shows `2a` and `38`.
 3. Aim and tune: `python3 display_loop.py --presence-test` prints detection/range for 30 s.
 4. Enable in `.env`, then restart the display service:

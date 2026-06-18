@@ -324,7 +324,7 @@ i2cdetect -y 1</code></pre>You should see <code>2a</code> (the C4001) and <code>
   <div class="step-body"><label for="i2">Get the DFRobot C4001 Python library and put it where <code>display_loop.py</code> can import it (it adds its own dir to <code>sys.path</code>, so dropping the file alongside it is simplest).<pre><code>cd /tmp
 git clone https://github.com/DFRobot/DFRobot_C4001
 sudo cp DFRobot_C4001/python/raspberrypi/DFRobot_C4001.py \
-        /usr/lib/cgi-bin/remote-switch/</code></pre>If the lib imports other files in that folder, copy those too. (Missing lib is harmless — the display just runs without motion-wake.)</label></div>
+        /usr/lib/cgi-bin/remote-switch/</code></pre>The library imports <code>serial</code> (pyserial) and <code>smbus</code> at the top even on the I2C path, so install both or the import fails with <code>No module named 'serial'</code>:<pre><code>sudo apt-get install -y python3-serial python3-smbus</code></pre>If the lib imports other files in that folder, copy those too. (Missing lib is harmless — the display just runs without motion-wake.)</label></div>
 </div>
 <div class="step">
   <input type="checkbox" id="i3">
@@ -428,8 +428,8 @@ sudo systemctl status display</code></pre>Status <code>active (running)</code>; 
     </tr>
     <tr>
       <td><code>presence: DFRobot_C4001 lib unavailable</code></td>
-      <td>Library not on the path</td>
-      <td>Copy <code>DFRobot_C4001.py</code> into <code>/usr/lib/cgi-bin/remote-switch/</code>.</td>
+      <td>Library file missing, or its <code>pyserial</code>/<code>smbus</code> deps aren't installed (the message names the missing one, e.g. <code>No module named 'serial'</code>)</td>
+      <td>Copy <code>DFRobot_C4001.py</code> into <code>/usr/lib/cgi-bin/remote-switch/</code>, and install the deps: <code>sudo apt-get install -y python3-serial python3-smbus</code>.</td>
     </tr>
     <tr>
       <td>Wakes/sleeps too eagerly</td>

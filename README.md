@@ -326,7 +326,7 @@ The 3.5" IPS dashboard runs 24/7. To save LED-backlight hours (and heat), an opt
    ```
    `DFRobot_C4001.py` imports `serial` (pyserial) and `smbus` at the top even on the I2C path, so both must be present. `gpiozero` (for the backlight) ships with Raspberry Pi OS.
 2. Confirm both chips are on the bus: `i2cdetect -y 1` → shows `2a` and `38`.
-3. Aim and tune: `python3 display_loop.py --presence-test` prints detection/range for 30 s.
+3. Aim and tune: `python3 display_loop.py --presence-test` prints detection/range for 30 s. If it picks up near-field clutter or fires too eagerly (common in a metal hangar), dial it in with the opt-in `PRESENCE_RANGE_*` / `PRESENCE_TRIG_SENS` / `PRESENCE_FRETTING` knobs in `.env` (see `.env.example`); the `C4001 ready (… tuning: …)` line confirms what took effect.
 4. Enable in `.env`, then restart the display service:
    ```bash
    PRESENCE_ENABLED=1

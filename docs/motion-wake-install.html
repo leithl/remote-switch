@@ -346,6 +346,16 @@ python3 display_loop.py --presence-test</code></pre>Prints a line every 0.5s for
 <div class="note tip">
   <strong>Default mode is <code>motion</code></strong> (12&nbsp;m, whole hangar). A motionless person reads as no-target — the rolling idle timeout bridges that. Switch to <code>PRESENCE_MODE=presence</code> for still-presence holding, but only to ~8&nbsp;m.
 </div>
+<div class="note tip">
+  <strong>Reading near-field phantoms, or detecting too eagerly?</strong> The C4001 ships fairly hot and a metal hangar throws multipath, so a near-field <code>range</code> that bounces around (e.g. &lt;&nbsp;2&nbsp;m while you're 8–10&nbsp;m off) is the sensor chewing on clutter, not tracking you. Tune it with opt-in <code>.env</code> knobs — unset = leave the sensor's own config alone — then re-run <code>--presence-test</code>; the <code>presence: C4001 ready (… tuning: …)</code> line echoes what took effect:
+  <ul>
+    <li><code>PRESENCE_RANGE_MIN_CM=150</code> — ignore returns closer than 1.5&nbsp;m (kills near-field clutter)</li>
+    <li><code>PRESENCE_RANGE_MAX_CM=1200</code> — cap reach at your real coverage (240–2000&nbsp;cm)</li>
+    <li><code>PRESENCE_TRIG_SENS=4</code> — trigger sensitivity 0–9; <em>lower</em> = fewer false wakes</li>
+    <li><code>PRESENCE_FRETTING=off</code> — ignore micro-motion (breathing-scale jitter), fewer phantoms</li>
+  </ul>
+  These persist to the sensor's own flash, so they survive reboots once written. Only <code>detected</code> drives the backlight — a wrong <code>range</code> won't break motion-wake, but phantom <code>detected: True</code> with nobody there keeps the screen awake, which is what these dial out.
+</div>
 
 <h2>Enable it</h2>
 <div class="step">
@@ -355,6 +365,10 @@ python3 display_loop.py --presence-test</code></pre>Prints a line every 0.5s for
 # IDLE_TIMEOUT_SECS=120       # rolling: resets on every motion/touch
 # BACKLIGHT_GPIO=18
 # BACKLIGHT_FADE_SECS=0.4     # 0 = instant
+# PRESENCE_RANGE_MIN_CM=150   # ignore near-field clutter closer than this
+# PRESENCE_RANGE_MAX_CM=1200  # detection reach in cm (240-2000)
+# PRESENCE_TRIG_SENS=4        # 0-9, lower = fewer false wakes
+# PRESENCE_FRETTING=off       # ignore micro-motion
 # PRESENCE_I2C_ADDR=0x2A</code></pre></label></div>
 </div>
 <div class="step">

@@ -381,13 +381,20 @@ if (data.length > 0) {
   var tempChart = new Chart(document.getElementById('tempChart'), {
     type: 'line',
     data: {
+      // Layering convention: SHADED datasets (anything with a fill — the
+      // Hangar area + the Heater/Fan bands) get `order: 1` so they render
+      // BEHIND; LINE datasets (Ambient, HVAC W) stay at the default `order: 0`
+      // so they render IN FRONT. Chart.js draws lowest-`order` last (on top),
+      // so a fill can never paint over a line. Any new line dataset added with
+      // no `order` is automatically safe; give new filled datasets `order: 1`.
       datasets: [{
         data: data,
         borderColor: 'rgb(75, 192, 192)',
         backgroundColor: 'rgba(75, 192, 192, 0.2)',
         fill: true,
         pointRadius: 0,
-        tension: 0.3
+        tension: 0.3,
+        order: 1
       }, {
         data: heaterData,
         borderColor: 'transparent',
@@ -395,7 +402,8 @@ if (data.length > 0) {
         fill: 'origin',
         pointRadius: 0,
         tension: 0.3,
-        spanGaps: false
+        spanGaps: false,
+        order: 1
       }, {
         data: fanData,
         borderColor: 'transparent',
@@ -403,7 +411,8 @@ if (data.length > 0) {
         fill: 'origin',
         pointRadius: 0,
         tension: 0.3,
-        spanGaps: false
+        spanGaps: false,
+        order: 1
       }, {
         // Ambient is sparse when the upstream weather API fails — align
         // it to the temp x-array (nulls where ambient is missing) so the
@@ -419,6 +428,7 @@ if (data.length > 0) {
         tension: 0.4,
         cubicInterpolationMode: 'monotone',
         spanGaps: 600000
+        // order omitted → default 0 → drawn in front of the shaded datasets.
       }, {
         // HVAC compressor power draw — bound to the right Watts axis (y1).
         // Only buckets above the standby threshold (>100W) are present;

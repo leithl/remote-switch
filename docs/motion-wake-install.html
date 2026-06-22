@@ -321,15 +321,19 @@ i2cdetect -y 1</code></pre>You should see <code>2a</code> (the C4001) and <code>
 </div>
 <div class="step">
   <input type="checkbox" id="i2">
-  <div class="step-body"><label for="i2">Get the DFRobot C4001 Python library and put it where <code>display_loop.py</code> can import it (it adds its own dir to <code>sys.path</code>, so dropping the file alongside it is simplest).<pre><code>cd /tmp
-git clone https://github.com/DFRobot/DFRobot_C4001
-sudo cp DFRobot_C4001/python/raspberrypi/DFRobot_C4001.py \
-        /usr/lib/cgi-bin/remote-switch/</code></pre>The library imports <code>serial</code> (pyserial) and <code>smbus</code> at the top even on the I2C path, so install both or the import fails with <code>No module named 'serial'</code>:<pre><code>sudo apt-get install -y python3-serial python3-smbus</code></pre>If the lib imports other files in that folder, copy those too. (Missing lib is harmless — the display just runs without motion-wake.)</label></div>
+  <div class="step-body"><label for="i2">The DFRobot C4001 library (<code>DFRobot_C4001.py</code>) is now vendored at the repo root, so the next step's <code>git pull</code> installs it — no clone/copy needed. It imports <code>serial</code> (pyserial) and <code>smbus</code> at the top even on the I2C path, so install both or the import fails with <code>No module named 'serial'</code>:<pre><code>sudo apt-get install -y python3-serial python3-smbus</code></pre>(Missing lib is harmless — the display just runs without motion-wake.)</label></div>
 </div>
 <div class="step">
   <input type="checkbox" id="i3">
   <div class="step-body"><label for="i3">Pull the branch with <code>presence.py</code> / <code>backlight.py</code> / the updated <code>display_loop.py</code> (as the <code>leith</code> user — never <code>sudo git pull</code>, it changes ownership).<pre><code>cd /usr/lib/cgi-bin/remote-switch
 git pull</code></pre></label></div>
+</div>
+<div class="note tip">
+  <strong>Upgrading an existing install?</strong> If you previously hand-copied
+  <code>DFRobot_C4001.py</code> into this dir, it's an <em>untracked</em> file and
+  <code>git pull</code> aborts with "untracked working tree file would be
+  overwritten." Remove the loose copy first — it comes back identical from the repo:
+  <pre><code>rm -f /usr/lib/cgi-bin/remote-switch/DFRobot_C4001.py</code></pre>
 </div>
 
 <h2>Aim &amp; tune</h2>

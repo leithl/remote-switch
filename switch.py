@@ -528,6 +528,10 @@ def _handle(environ):
                     if sched_fan not in hvac.ALL_FANS:
                         sched_fan = "auto"
                     sched_power = qs.get("sched_hvac_power") == "1"
+                    # Checkbox: unchecked submits nothing → False (explicit off),
+                    # like the instant Apply form — the schedule carries full
+                    # desired state, so it clears turbo unless the box is ticked.
+                    sched_turbo = qs.get("sched_hvac_turbo") == "1"
                     if hvac_mode == hvac.MODE_FREEZE:
                         params = {"mode": hvac.MODE_FREEZE}
                     else:
@@ -535,6 +539,7 @@ def _handle(environ):
                             "power": sched_power,
                             "mode": hvac_mode,
                             "fan_speed": sched_fan,
+                            "turbo": sched_turbo,
                         }
                         if sched_target_f is not None:
                             params["target_f"] = sched_target_f
@@ -889,6 +894,8 @@ def _hvac_sched_label(params_json):
             parts.append(f"{p['target_f']:.0f}°F")
         if p.get("fan_speed") and p["fan_speed"] != "auto":
             parts.append(f"fan {hvac.FAN_LABELS.get(p['fan_speed'], p['fan_speed']).lower()}")
+        if p.get("turbo"):
+            parts.append("Turbo")
     return " · ".join(parts) if parts else "Set"
 
 

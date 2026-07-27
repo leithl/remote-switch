@@ -138,6 +138,12 @@
       <option value="0">Off</option>
     </select>
   </div>
+  <div class="col-auto sched-hvac sched-hvac-turbo" style="display:none">
+    <label for="sched_hvac_turbo" class="form-label mb-0 small d-block">Turbo</label>
+    <div class="form-check">
+      <input type="checkbox" name="sched_hvac_turbo" value="1" id="sched_hvac_turbo" class="form-check-input">
+    </div>
+  </div>
   {% endif %}
   <div class="col-auto">
     <button type="submit" class="btn btn-primary btn-sm">Schedule</button>
@@ -157,7 +163,7 @@ function schedHvacModeToggle() {
   var mode = modeSel.value;
   // Freeze Prevention preset = no extra fields
   var isFreeze = mode === 'freeze';
-  ['sched-hvac-temp', 'sched-hvac-fan', 'sched-hvac-power'].forEach(function(cls) {
+  ['sched-hvac-temp', 'sched-hvac-fan', 'sched-hvac-power', 'sched-hvac-turbo'].forEach(function(cls) {
     document.querySelectorAll('.' + cls).forEach(function(el) {
       el.style.display = isFreeze ? 'none' : '';
     });

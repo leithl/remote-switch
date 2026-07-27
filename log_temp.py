@@ -243,7 +243,8 @@ def do_log():
                     except (PermissionError, OSError):
                         pass
             elif device == "hvac":
-                # Hangar HVAC: params is JSON {power, mode, target_f, fan_speed}
+                # Hangar HVAC: params is JSON {power, mode, target_f, fan_speed,
+                # turbo}. turbo absent (pre-turbo schedules) → None → unchanged.
                 try:
                     p = json.loads(params) if params else {}
                     hvac.set_state(
@@ -251,6 +252,7 @@ def do_log():
                         mode=p.get("mode"),
                         target_f=p.get("target_f"),
                         fan_speed=p.get("fan_speed"),
+                        turbo=p.get("turbo"),
                     )
                 except Exception:
                     pass

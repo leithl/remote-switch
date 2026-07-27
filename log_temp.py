@@ -254,6 +254,15 @@ def do_log():
                     )
                 except Exception:
                     pass
+            elif device == "fan":
+                # Exhaust fan: action is a fan mode ('on'/'off'/'auto'). Set the
+                # mode only — the fan auto-logic block below applies the GPIO
+                # this same tick, and the per-minute cron re-enforces it after.
+                if action in ("on", "off", "auto"):
+                    try:
+                        config.write_fan_mode(action)
+                    except OSError:
+                        pass
 
             conn.execute(
                 "DELETE FROM schedules WHERE created_epoch = ?",

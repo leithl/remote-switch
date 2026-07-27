@@ -92,6 +92,7 @@
     <label for="sched_device" class="form-label mb-0 small">Device</label>
     <select id="sched_device" name="sched_device" class="form-select form-select-sm" onchange="schedToggle()">
       <option value="heater">Heater</option>
+      <option value="fan">Fan</option>
       {% if hvac_configured %}<option value="hvac">HVAC</option>{% endif %}
     </select>
   </div>
@@ -100,6 +101,14 @@
     <select id="sched_action" name="sched_action" class="form-select form-select-sm">
       <option value="1">Turn ON</option>
       <option value="0">Turn OFF</option>
+    </select>
+  </div>
+  <div class="col-auto sched-fan" style="display:none">
+    <label for="sched_fan_action" class="form-label mb-0 small">Action</label>
+    <select id="sched_fan_action" name="sched_fan_action" class="form-select form-select-sm">
+      <option value="on">Turn ON</option>
+      <option value="off">Turn OFF</option>
+      <option value="auto">Set to Auto</option>
     </select>
   </div>
   {% if hvac_configured %}
@@ -138,6 +147,7 @@
 function schedToggle() {
   var device = document.getElementById('sched_device').value;
   document.querySelectorAll('.sched-heater').forEach(function(el) { el.style.display = device === 'heater' ? '' : 'none'; });
+  document.querySelectorAll('.sched-fan').forEach(function(el) { el.style.display = device === 'fan' ? '' : 'none'; });
   document.querySelectorAll('.sched-hvac').forEach(function(el) { el.style.display = device === 'hvac' ? '' : 'none'; });
   if (device === 'hvac') schedHvacModeToggle();
 }

@@ -47,11 +47,11 @@ Files:
 
 When adding a new persistent thing, ask: how often is it written? If more than weekly → `/run`. If user-action-driven and rare → SD card is fine.
 
-## Schedule schema (extended for HVAC)
+## Schedule schema (extended for HVAC + fan)
 The `schedules` table has two columns added on top of the original heater schema:
-- `device TEXT DEFAULT 'heater'` — `'heater'` or `'hvac'`
+- `device TEXT DEFAULT 'heater'` — `'heater'`, `'fan'`, or `'hvac'`
 - `params TEXT DEFAULT ''` — JSON for HVAC schedules: `{power, mode, target_f, fan_speed}` or `{mode: "freeze"}`
-Existing heater rows keep `action` = `"0"`/`"1"`; HVAC rows use `action` = `"set"` and read everything from `params`. `log_temp.py do_log()` dispatches by device.
+Existing heater rows keep `action` = `"0"`/`"1"`; HVAC rows use `action` = `"set"` and read everything from `params`. **Fan rows store the target fan *mode* in `action` (`"on"`/`"off"`/`"auto"`), not a GPIO level** — the fan is mode-driven and the per-minute cron re-enforces the mode every tick, so a fan schedule must set the mode. `do_log()` sets it via `config.write_fan_mode()` inside the due-schedule loop, which runs *before* the fan auto-logic block, so the GPIO is applied that same tick (and `"auto"` correctly hands control back to the temp-threshold logic). `log_temp.py do_log()` dispatches by device.
 
 ## Readings columns added for HVAC
 - `readings.ac_state INTEGER` — 0=off, 1=heat, 2=cool, 3=fan, 4=dry, 5=auto. The unit's *mode*, not its *running state*. In Freeze Prevention overnight the unit sits in HEAT mode 24/7 even though the compressor cycles only briefly per hour, so this column alone overstates "HVAC on".
@@ -219,7 +219,7 @@ The wrappers were verified against msmart-ng 2025.12.0. If you upgrade, watch th
 - Heater: `?state=0|1`
 - Fan: `?fan_state=0|1`, `?fan_mode=auto`
 - HVAC immediate apply: `?hvac_apply=1` plus `&hvac_power=0|1&hvac_mode=…&hvac_target_f=…&hvac_fan_speed=…&hvac_turbo=0|1`. Special case: `&hvac_mode=freeze` triggers the Freeze Prevention preset and ignores the other args (turbo included). `hvac_turbo` is the Apply form's Turbo checkbox; an unchecked box submits nothing, so absent → off.
-- Schedule add: `?sched_dt=YYYY-MM-DDTHH:MM&sched_device=heater|hvac` plus device-specific params (`sched_action` for heater; `sched_hvac_mode/target_f/fan_speed/power` for HVAC).
+- Schedule add: `?sched_dt=YYYY-MM-DDTHH:MM&sched_device=heater|fan|hvac` plus device-specific params (`sched_action=0|1` for heater; `sched_fan_action=on|off|auto` for the fan; `sched_hvac_mode/target_f/fan_speed/power` for HVAC).
 - Schedule cancel: `?cancel_id=<created_epoch>`.
 - Chart range: `?range=1d|7d|30d|YYYY-MM`.
 - Lazy fragments (fetched by page JS after load, kept off the main TTFB): `?monthly_stats=1` (~1s SQL scan), `?hvac_state=1` (dongle round-trip), `?door_events=1&range=1d|7d` (~0.6s raw-row scan).

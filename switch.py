@@ -31,6 +31,11 @@ try:
 except ImportError:
     Markup = str  # type: ignore[assignment,misc]  # fallback for dev environments without jinja2
 
+# Fan schedules store one of these in schedules.action; log_temp.py executes
+# them by setting the fan *mode* (config.write_fan_mode) — not a raw GPIO write,
+# because the per-minute cron re-enforces the mode every tick.
+_FAN_SCHED_LABELS = {"on": "Turn ON", "off": "Turn OFF", "auto": "Set to Auto"}
+
 # Module-level Jinja2 environment — created once per process, reused on every request.
 _jinja_env = None
 
@@ -487,10 +492,15 @@ def _handle(environ):
     now_epoch = int(datetime.now().timestamp())
     sched_msg = Markup("")
 
-    sched_dt_raw  = qs.get("sched_dt", "")
-    sched_device  = qs.get("sched_device", "heater")
-    sched_action  = qs.get("sched_action", "")
-    if sched_dt_raw and (sched_device == "hvac" or sched_action in ("0", "1")):
+    sched_dt_raw     = qs.get("sched_dt", "")
+    sched_device     = qs.get("sched_device", "heater")
+    sched_action     = qs.get("sched_action", "")
+    sched_fan_action = qs.get("sched_fan_action", "")
+    if sched_dt_raw and (
+        sched_device == "hvac"
+        or (sched_device == "fan" and sched_fan_action in _FAN_SCHED_LABELS)
+        or (sched_device == "heater" and sched_action in ("0", "1"))
+    ):
         sched_dt_decoded = urllib.parse.unquote_plus(sched_dt_raw)
         try:
             sched_epoch = int(
@@ -538,6 +548,18 @@ def _handle(environ):
                     conn.commit()
                     conn.close()
                     _home_redirect(environ)
+            elif sched_device == "fan":
+                # Exhaust fan: action is a fan mode ('on'/'off'/'auto').
+                conn = config.get_db()
+                conn.execute(
+                    "INSERT OR REPLACE INTO schedules "
+                    "(created_epoch, execute_epoch, action, device, params) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (now_epoch, sched_epoch, sched_fan_action, "fan", ""),
+                )
+                conn.commit()
+                conn.close()
+                _home_redirect(environ)
             else:
                 conn = config.get_db()
                 conn.execute(
@@ -639,6 +661,9 @@ def _handle(environ):
         if device == "hvac":
             action_label = _hvac_sched_label(params)
             badge = '<span class="badge bg-info text-dark me-1">HVAC</span>'
+        elif device == "fan":
+            action_label = _FAN_SCHED_LABELS.get(action, action)
+            badge = '<span class="badge bg-primary me-1">Fan</span>'
         else:
             action_label = "Turn ON" if action == "1" else "Turn OFF"
             badge = '<span class="badge bg-secondary me-1">Heater</span>'

@@ -200,7 +200,9 @@ Requires [`msmtp`](https://marlam.de/msmtp/) to be installed and configured. The
 
 ## Scheduling
 
-The web UI includes a one-shot scheduler that can act on either the engine-block heater (turn on/off) or the hangar HVAC (mode + target temp + fan, including a one-click Freeze Prevention preset). Schedules are stored in the database and executed by the every-minute cron job — no additional setup needed. Schedules survive reboots.
+The web UI includes a one-shot scheduler that can act on the engine-block heater (turn on/off), the exhaust fan (turn on, turn off, or set back to auto), or the hangar HVAC (mode + target temp + fan, including a one-click Freeze Prevention preset). Schedules are stored in the database and executed by the every-minute cron job — no additional setup needed. Schedules survive reboots.
+
+Fan schedules set the fan's *mode* rather than pulsing the relay, so "Turn ON" holds the fan on until another schedule or manual action changes it; "Set to Auto" hands control back to the temperature-threshold auto logic (handy for "force off overnight, back to auto in the morning").
 
 ---
 

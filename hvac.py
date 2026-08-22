@@ -176,8 +176,15 @@ def _device_to_dict(dev):
     indoor_c = float(dev.indoor_temperature) if dev.indoor_temperature is not None else None
     freeze_on = bool(getattr(dev, "freeze_protection", False))
     # Turbo (the IR remote's "blast max output" button). Newer msmart-ng exposes
-    # it as `turbo`; older as `turbo_mode`. Read whichever exists.
-    turbo_on = bool(getattr(dev, "turbo", getattr(dev, "turbo_mode", False)))
+    # it as `turbo`; older as `turbo_mode`. Ask _turbo_attr which one this build
+    # has — do NOT write this as a nested getattr default, e.g.
+    #   getattr(dev, "turbo", getattr(dev, "turbo_mode", False))
+    # Python evaluates the inner call eagerly, so the discarded default still
+    # *reads* `turbo_mode`, and on msmart-ng >= 2025.12 that is a @deprecated
+    # property that prints to stderr on every access. Under the per-minute
+    # log_temp.py cron that became ~10k lines/day of warning + undeliverable-mail
+    # spam and filled the log2ram RAM disk.
+    turbo_on = bool(getattr(dev, _turbo_attr(dev), False))
 
     op_mode = inv_modes.get(dev.operational_mode, str(dev.operational_mode))
     effective_mode = MODE_FREEZE if freeze_on else op_mode

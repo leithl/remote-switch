@@ -12,6 +12,8 @@ Usage:
 
 import fcntl
 import json
+import logging
+import logging.handlers
 import os
 import shutil
 import subprocess
@@ -343,7 +345,44 @@ def do_log():
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _configure_logging():
+    """Route library log records to syslog instead of stderr.
+
+    This runs once a minute from cron, and cron mails anything a job writes to
+    stdout or stderr. With no logging handler configured, Python falls back to
+    `logging.lastResort`, which prints WARNING and above straight to stderr --
+    so every library log line becomes an email.
+
+    That is not hypothetical: msmart calls `_LOGGER.error()` whenever a device
+    response fails its CRC check, then drops that one response and carries on.
+    It is benign (the AC stays reachable; only that sample's energy columns go
+    NULL, which aggregations already treat as "no data") but it lands on ~2% of
+    samples -- roughly 25 mails a day.
+
+    Installing a syslog handler fixes both halves: the records go somewhere
+    durable and greppable (`journalctl -t log_temp`), and because a handler now
+    exists, lastResort stops writing to stderr. Uncaught exceptions still print
+    a traceback to stderr and are still mailed, which is exactly the split we
+    want -- real breakage pages, routine library noise does not.
+    """
+    root = logging.getLogger()
+    if root.handlers:
+        return
+    try:
+        handler = logging.handlers.SysLogHandler(address="/dev/log")
+    except OSError:
+        # No syslog socket (unusual, but do not take the reading down over it).
+        # lastResort still applies, so behaviour is simply the old behaviour.
+        return
+    handler.setFormatter(logging.Formatter(
+        "log_temp[%(process)d]: %(name)s %(levelname)s %(message)s"))
+    root.addHandler(handler)
+    root.setLevel(logging.WARNING)
+
+
 if __name__ == "__main__":
+    _configure_logging()
+
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
 
     if mode == "flush":

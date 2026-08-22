@@ -184,6 +184,46 @@ If `ac_state` flipped (1=heat/freeze → 2=cool, etc.) within 1–2 minutes of t
 
 **The 2026-05-15 incident in one sentence:** Apply (Cool/72°F) clicked 3 times, UI kept showing Freeze/61°F; per-minute log proved the unit transitioned to Cool within 30s of the first click; cache was owned `root:root` so WSGI couldn't update it; fix was a chown in `_write_cache`.
 
+## Diagnosing "Disk Space Alert: raspberrypi" / log2ram filling
+
+The Pi's `/var/log` is **log2ram** — a 128 MB RAM disk, not the SD card. `check_disk.sh`
+filters tmpfs *by filesystem name*, and log2ram's device is literally `log2ram`, so it
+slips the filter and the mail arrives worded as a disk-space alert. **Check `df -h /`
+first**: if root is single-digit percent, the SD card is fine and the real question is
+what is writing to `/var/log` so fast.
+
+Decision tree, keyed off what you can see:
+
+- `df -h` shows `/` low but `log2ram` high → not a disk problem. Continue below.
+- `sudo du -xh --max-depth=1 /var/log | sort -h` → if `journal/` and `syslog` dominate
+  together, it is log *volume*, not one runaway file.
+- `sudo awk '{print $5}' /var/log/syslog | sed 's/\[[0-9]*\]//' | sort | uniq -c | sort -rn | head`
+  names the talker in one command. Anything over ~50% of lines is the bug.
+- Talker is `cron:`/`CRON:` → a per-minute job is printing output. cron mails any output
+  to `MAILTO`, msmtp relays it to Gmail, and Gmail rejects a bare `root` recipient with
+  `553-5.1.3 … not a valid RFC 5321 address` — **six syslog lines per minute**, forever.
+  Find the job's output with `sudo /path/to/job` and note that **stderr counts**: a job
+  can look silent on stdout and still be mailed.
+
+Anti-patterns — skip these:
+
+- **"Reboot the Pi."** log2ram wipes on reboot, so the symptom vanishes and comes back in
+  a few days. It hides the cause, never fixes it.
+- **"Shrink the journal / raise log2ram SIZE."** Treating the tank when the tap is open.
+  Only worth doing after the talker is silenced.
+- **"Replace the SD card."** The alert says disk; the disk is at 7%. Read `df` before
+  believing the subject line.
+- **Redirecting the noisy job to `/dev/null`.** Silences the symptom *and* every future
+  real error from that job. Fix the source; keep `MAILTO` pointed somewhere deliverable.
+
+Instance seen 2026-08-22: `hvac.py` read turbo as
+`getattr(dev, "turbo", getattr(dev, "turbo_mode", False))`. Python evaluates the inner
+call eagerly, so the *discarded* default still read `turbo_mode` — a `@deprecated`
+property on msmart-ng >= 2025.12 that prints to stderr on every access. Under the
+per-minute `log_temp.py` cron that was ~10k lines/day and 85–99% of everything the Pi
+logged. **A nested `getattr` fallback is never safe against a deprecated property** —
+resolve the attribute name first (`_turbo_attr()`), then read it once.
+
 ## HVAC module specifics (`hvac.py`)
 - **Source of truth for the hangar climate.** All Durastar/Midea code lives here; nothing else imports `msmart`.
 - **Lazy import:** `import msmart` happens only inside helper functions, so the WSGI app and cron jobs boot fine on a Pi that hasn't run `pip install msmart-ng` yet. `is_configured()` checks `.env` keys without ever touching the network.
@@ -198,7 +238,7 @@ If `ac_state` flipped (1=heat/freeze → 2=cool, etc.) within 1–2 minutes of t
 - **Two-way visibility:** `set_state()` writes both `reported` (post-apply) and `commanded` (what we asked for). UI surfaces commanded only when `_diverged()` returns True (catches drift if someone uses the physical IR remote — common in this hangar).
 - **Stable mode/fan tokens** (used in `.env`, schedule `params` JSON, `?hvac_*=` query strings, and chart logic): `MODE_AUTO/COOL/DRY/HEAT/FAN/FREEZE` and `FAN_AUTO/LOW/MED/HIGH`. Don't add or rename without checking all four call sites. **Turbo is NOT a mode token** — it's a separate boolean modifier on `set_state(turbo=…)` / the `hvac_turbo` (instant) and `sched_hvac_turbo` (schedule) checkboxes, orthogonal to mode; don't fold it into `ALL_MODES`.
 - **Freeze Prevention — LAN flips the flag, not the regulator.** `MODE_FREEZE` maps to `dev.freeze_protection = True` over the LAN protocol. On this Durastar that turns on the unit's "FP" display, but the indoor target settles at the dongle-reported `min_target_temperature` (16°C / ~60°F) — NOT the 46°F regulator the IR remote engages with "down twice from 60°F". Same flag, different setpoints. The mechanism (or absence) of a LAN path to the 46°F regulator is an open question — see [docs/hvac-fp-investigation.md](docs/hvac-fp-investigation.md) for the in-person test plan. Setting any other explicit `mode` automatically clears the freeze flag — exit FP whenever the user picks a different mode. Capability flags (`dev.supports_freeze_protection`) are unreliable on some units (msmart-ng issue #76); we always send the SetState bit regardless. The state byte is `payload[21] bit 0x80` in msmart-ng's SetState/StateResponse if you ever need to debug at the wire level.
-- **Turbo (the IR remote's "blast max output" button).** `set_state(turbo=…)` is tri-state (True/False/None); it maps to `dev.turbo` (older msmart-ng: `dev.turbo_mode` — resolved defensively by `_turbo_attr()`, prefers `turbo`). Sent like `freeze_protection`: always send the bit, ignore the unreliable `supports_turbo` flag. **Turbo persists until explicitly cleared** on this Durastar (observed at the hangar 2026-06-15 — it did NOT auto-drop after ~15 min, disproving the earlier assumption). Because it persists, turbo **IS** part of `_diverged()` drift detection (bool-coerced both sides so a missing/None key can't trigger spurious drift) — an IR-remote turbo toggle now raises the "physical remote may have been used" warning, and `_hvac_card.html` names `+ Turbo` in that line. Still NOT logged per-minute (`state_for_log()` unchanged) — it's a momentary user action, not a sampled signal. Cleared (forced None) in the Freeze Prevention branch — meaningless in FP. Surfaced in `_device_to_dict()` as `turbo` so the Apply checkbox pre-checks and the status line shows it. **Also schedulable** (the `sched_hvac_turbo` checkbox → `params.turbo` bool; `_hvac_sched_label` appends `· Turbo`), hidden on the Freeze preset like the temp/fan/power fields.
+- **Turbo (the IR remote's "blast max output" button).** `set_state(turbo=…)` is tri-state (True/False/None); it maps to `dev.turbo` (older msmart-ng: `dev.turbo_mode` — resolved defensively by `_turbo_attr()`, prefers `turbo`). **Always go through `_turbo_attr()`; never a nested `getattr` default** — see the log2ram diagnosing section for why that shape cost ~10k log lines/day. Sent like `freeze_protection`: always send the bit, ignore the unreliable `supports_turbo` flag. **Turbo persists until explicitly cleared** on this Durastar (observed at the hangar 2026-06-15 — it did NOT auto-drop after ~15 min, disproving the earlier assumption). Because it persists, turbo **IS** part of `_diverged()` drift detection (bool-coerced both sides so a missing/None key can't trigger spurious drift) — an IR-remote turbo toggle now raises the "physical remote may have been used" warning, and `_hvac_card.html` names `+ Turbo` in that line. Still NOT logged per-minute (`state_for_log()` unchanged) — it's a momentary user action, not a sampled signal. Cleared (forced None) in the Freeze Prevention branch — meaningless in FP. Surfaced in `_device_to_dict()` as `turbo` so the Apply checkbox pre-checks and the status line shows it. **Also schedulable** (the `sched_hvac_turbo` checkbox → `params.turbo` bool; `_hvac_sched_label` appends `· Turbo`), hidden on the Freeze preset like the temp/fan/power fields.
 - **`state_for_log()`** returns `{ac_state, power_w, total_kwh}` for `log_temp.py` to write into the per-minute row, or `None` when not configured / unreachable (all three columns stay NULL — aggregations treat NULL as "no data, don't render"). The dict shape lets one refresh feed three columns; don't reintroduce a separate getter.
 
 ## msmart-ng API surface (verified 2025.12.0)
@@ -207,6 +247,7 @@ The wrappers were verified against msmart-ng 2025.12.0. If you upgrade, watch th
 - Enums: `AC.OperationalMode.{AUTO, COOL, DRY, HEAT, FAN_ONLY, SMART_DRY}`, `AC.FanSpeed.{AUTO, MAX, HIGH, MEDIUM, LOW, SILENT}`. We map our 4 fan tokens to AUTO/LOW/MEDIUM/HIGH.
 - `from msmart.discover import Discover`. `Discover.discover(*, account=…, password=…, auto_connect=True)` does both LAN UDP discovery AND the cloud handshake in one call — returned `Device` objects already have `.token` / `.key` populated. **Do not call `cloud.get_token()` separately.**
 - `from msmart.cloud import NetHomePlusCloud, SmartHomeCloud, BaseCloud`. The plain `Cloud` class no longer exists. We don't instantiate any of these directly — `Discover.discover()` does it for us.
+- **Deprecated aliases print to stderr.** 2025.12.0 keeps `turbo_mode`, `sleep_mode`, `supports_turbo_mode`, `use_alternate_energy_format` as `@deprecated` properties that warn on *access*. Never probe one speculatively (a nested `getattr` default, a `hasattr` you did not short-circuit) — under the per-minute cron a single stray read becomes thousands of log lines a day.
 - A drift sentinel: try `python3 -c "from msmart.cloud import NetHomePlusCloud"` after a version bump. If it fails, the API moved again and `setup_hvac.py` needs another patch.
 
 ## HVAC pairing (`setup_hvac.py`)

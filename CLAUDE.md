@@ -216,6 +216,27 @@ Anti-patterns — skip these:
 - **Redirecting the noisy job to `/dev/null`.** Silences the symptom *and* every future
   real error from that job. Fix the source; keep `MAILTO` pointed somewhere deliverable.
 
+**The general rule: a per-minute cron job must write nothing to stdout or stderr
+in the normal case.** cron mails whatever a job emits, so any library that logs
+at WARNING or above turns into either an inbox flood (deliverable `MAILTO`) or a
+syslog flood (undeliverable one). Python makes this easy to trip: with no logging
+handler configured, `logging.lastResort` prints WARNING and above straight to
+stderr. `log_temp.py` therefore installs a `SysLogHandler` on the root logger at
+startup (`_configure_logging()`) -- library records go to the journal
+(`journalctl -t log_temp`), while uncaught exceptions still reach stderr and are
+still mailed. Keep that split; do not "fix" a noisy job by redirecting it to
+`/dev/null`.
+
+**Known-benign baseline: msmart logs a CRC error on ~2% of samples.** The energy
+response from the dongle intermittently fails its checksum; msmart calls
+`_LOGGER.error()`, drops that one response and carries on. `ac_state` is never
+NULL as a result -- only `ac_power_w` / `ac_total_kwh` for that minute, which
+aggregations already treat as "no data". Measured 23-41 occurrences a day, flat
+across a week (2026-08-16 to 08-22). This is not a dongle fault and not a
+regression; do not go chasing it unless `ac_state` starts going NULL too, which
+would mean the device is actually unreachable -- a different problem with its own
+section above.
+
 Instance seen 2026-08-22: `hvac.py` read turbo as
 `getattr(dev, "turbo", getattr(dev, "turbo_mode", False))`. Python evaluates the inner
 call eagerly, so the *discarded* default still read `turbo_mode` — a `@deprecated`

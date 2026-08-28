@@ -13,6 +13,14 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+<style>
+/* A checkbox/switch sitting in a control row next to form-*-sm inputs. Bootstrap's
+   .form-check floats the input with a negative margin, which leaves a bare (label-less)
+   checkbox offset from the label stacked above it. Lay it out as a flex row instead and
+   give it the same box height as an -sm control so it lines up with the row, not the
+   text baseline. */
+.ctl-check { font-size: .875rem; min-height: calc(1.5em + .5rem + 2px); }
+</style>
 {% if enable_temp %}
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0" integrity="sha384-cVMg8E3QFwTvGCDuK+ET4PD341jF3W8nO1auiXfuZNQkzbUUiBGLsIQUE+b1mxws" crossorigin="anonymous"></script>
@@ -298,7 +306,7 @@ thead th{color:hsl(var(--muted-foreground));font-weight:500}
 <div class="col-md{% if pending_sched_rows %}-7{% endif %}">
 <form action="switch.py" method="GET" class="row g-2 align-items-end" id="schedForm">
   <div class="col-auto">
-    <label class="form-label mb-0 small d-block">Date &amp; Time</label>
+    <label class="form-label mb-1 small text-muted d-block">Date &amp; Time</label>
     <div class="datepicker" id="dp-sched">
       <input type="hidden" name="sched_dt" id="sched_dt" value="{{ now_dt_min }}">
       <button type="button" class="dp-trigger" id="dp-trigger" aria-haspopup="dialog" aria-expanded="false">
@@ -320,22 +328,26 @@ thead th{color:hsl(var(--muted-foreground));font-weight:500}
     </div>
   </div>
   <div class="col-auto">
-    <label for="sched_device" class="form-label mb-0 small">Device</label>
+    <label for="sched_device" class="form-label mb-1 small text-muted">Device</label>
     <select id="sched_device" name="sched_device" class="form-select form-select-sm" onchange="schedToggle()">
       <option value="heater">Heater</option>
       <option value="fan">Fan</option>
       {% if hvac_configured %}<option value="hvac">HVAC</option>{% endif %}
     </select>
   </div>
+  <!-- Forced break: "when + which device" on one line, that device's settings on the
+       next. The field count varies by device, so without it the row reflows into a
+       different ragged shape for each one. -->
+  <div class="w-100"></div>
   <div class="col-auto sched-heater">
-    <label for="sched_action" class="form-label mb-0 small">Action</label>
+    <label for="sched_action" class="form-label mb-1 small text-muted">Action</label>
     <select id="sched_action" name="sched_action" class="form-select form-select-sm">
       <option value="1">Turn ON</option>
       <option value="0">Turn OFF</option>
     </select>
   </div>
   <div class="col-auto sched-fan" style="display:none">
-    <label for="sched_fan_action" class="form-label mb-0 small">Action</label>
+    <label for="sched_fan_action" class="form-label mb-1 small text-muted">Action</label>
     <select id="sched_fan_action" name="sched_fan_action" class="form-select form-select-sm">
       <option value="on">Turn ON</option>
       <option value="off">Turn OFF</option>
@@ -343,8 +355,15 @@ thead th{color:hsl(var(--muted-foreground));font-weight:500}
     </select>
   </div>
   {% if hvac_configured %}
+  <div class="col-auto sched-hvac sched-hvac-power" style="display:none">
+    <label for="sched_hvac_power" class="form-label mb-1 small text-muted">Power</label>
+    <select id="sched_hvac_power" name="sched_hvac_power" class="form-select form-select-sm">
+      <option value="1" selected>On</option>
+      <option value="0">Off</option>
+    </select>
+  </div>
   <div class="col-auto sched-hvac" style="display:none">
-    <label for="sched_hvac_mode" class="form-label mb-0 small">Mode</label>
+    <label for="sched_hvac_mode" class="form-label mb-1 small text-muted">Mode</label>
     <select id="sched_hvac_mode" name="sched_hvac_mode" class="form-select form-select-sm" onchange="schedHvacModeToggle()">
       {% for val, label in hvac_modes %}
       <option value="{{ val }}"{% if val == 'heat' %} selected{% endif %}>{{ label }}</option>
@@ -352,31 +371,24 @@ thead th{color:hsl(var(--muted-foreground));font-weight:500}
     </select>
   </div>
   <div class="col-auto sched-hvac sched-hvac-temp" style="display:none">
-    <label for="sched_hvac_target_f" class="form-label mb-0 small">Target &deg;F</label>
+    <label for="sched_hvac_target_f" class="form-label mb-1 small text-muted">Target &deg;F</label>
     <input type="number" id="sched_hvac_target_f" name="sched_hvac_target_f" class="form-control form-control-sm"
-           min="{{ hvac_temp_min_f }}" max="{{ hvac_temp_max_f }}" step="1" value="70" style="width:5em">
+           min="{{ hvac_temp_min_f }}" max="{{ hvac_temp_max_f }}" step="1" value="70" style="width:5.5em">
   </div>
   <div class="col-auto sched-hvac sched-hvac-fan" style="display:none">
-    <label for="sched_hvac_fan_speed" class="form-label mb-0 small">Fan</label>
+    <label for="sched_hvac_fan_speed" class="form-label mb-1 small text-muted">Fan</label>
     <select id="sched_hvac_fan_speed" name="sched_hvac_fan_speed" class="form-select form-select-sm">
       {% for val, label in hvac_fans %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
     </select>
   </div>
-  <div class="col-auto sched-hvac sched-hvac-power" style="display:none">
-    <label for="sched_hvac_power" class="form-label mb-0 small">Power</label>
-    <select id="sched_hvac_power" name="sched_hvac_power" class="form-select form-select-sm">
-      <option value="1" selected>On</option>
-      <option value="0">Off</option>
-    </select>
-  </div>
   <div class="col-auto sched-hvac sched-hvac-turbo" style="display:none">
-    <label for="sched_hvac_turbo" class="form-label mb-0 small d-block">Turbo</label>
-    <div class="form-check">
-      <input type="checkbox" name="sched_hvac_turbo" value="1" id="sched_hvac_turbo" class="form-check-input">
+    <div class="form-check form-switch ctl-check d-flex align-items-center gap-2 ps-0 mb-0">
+      <input type="checkbox" role="switch" name="sched_hvac_turbo" value="1" id="sched_hvac_turbo" class="form-check-input m-0">
+      <label for="sched_hvac_turbo" class="form-check-label">Turbo</label>
     </div>
   </div>
   {% endif %}
-  <div class="col-auto">
+  <div class="col-auto ms-auto">
     <button type="submit" class="btn btn-primary btn-sm">Schedule</button>
   </div>
 </form>

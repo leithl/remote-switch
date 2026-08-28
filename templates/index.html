@@ -177,7 +177,6 @@ thead th{color:hsl(var(--muted-foreground));font-weight:500}
 .switch[aria-checked="true"]::after{transform:translateX(18px)}
 .switch[aria-checked="true"]{background:hsl(var(--primary))}
 .switch.sw-heater[aria-checked="true"]{background:hsl(var(--heater))}
-.switch.sw-fan[aria-checked="true"]{background:hsl(var(--fan))}
 .switch:focus-visible{outline:2px solid hsl(var(--ring));outline-offset:2px}
 .switch-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .switch-row .lbl{font-size:.9rem;font-weight:500}
@@ -255,23 +254,11 @@ thead th{color:hsl(var(--muted-foreground));font-weight:500}
   <span class="badge {{ 'bg-info' if fan_on else 'bg-secondary' }}">{{ 'ON' if fan_on else 'IDLE' }}</span>
 </div>
 <div class="card-body">
-<div class="d-flex align-items-center gap-2 mb-3">
-  <span class="text-muted small">Mode</span>
-  <span class="badge {{ 'bg-secondary' if fan_mode == 'auto' else 'bg-primary' }}">{{ fan_mode|capitalize }}</span>
+<div class="btn-group w-100" role="group" aria-label="Fan mode">
+  <a href="switch.py?fan_state=0" class="btn btn-sm {{ 'btn-primary' if fan_mode == 'off' else 'btn-outline-primary' }}">Off</a>
+  <a href="switch.py?fan_mode=auto" class="btn btn-sm {{ 'btn-primary' if fan_mode == 'auto' else 'btn-outline-primary' }}">Auto</a>
+  <a href="switch.py?fan_state=1" class="btn btn-sm {{ 'btn-primary' if fan_mode == 'on' else 'btn-outline-primary' }}">On</a>
 </div>
-<div class="switch-row">
-  <span class="lbl">Force on</span>
-  <form action="switch.py" method="GET" style="margin:0">
-    <input type="hidden" name="fan_state" value="{{ '0' if fan_on else '1' }}">
-    <button type="submit" class="switch sw-fan" role="switch"
-            aria-checked="{{ 'true' if fan_on else 'false' }}" aria-label="Toggle fan"></button>
-  </form>
-</div>
-{% if fan_mode != 'auto' %}
-<form action="switch.py" method="GET" class="mt-3">
-  <button type="submit" name="fan_mode" value="auto" class="btn btn-outline-secondary btn-sm">Set to Auto</button>
-</form>
-{% endif %}
 {% if fan_mode == 'auto' %}
 <p class="text-muted small mb-0 mt-3">Auto: runs when hangar &ge; 80&deg;F and outdoor is &ge; 5&deg;F cooler.</p>
 {% endif %}

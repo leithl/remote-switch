@@ -206,6 +206,91 @@ def do_rollup(month_arg=None):
 
 
 # ---------------------------------------------------------------------------
+# Open-Meteo outage alerting
+# ---------------------------------------------------------------------------
+# A single fetch_ambient() failure is routine (Open-Meteo returns the odd 503,
+# and the 15-min ambient cache covers brief blips) and no longer emails --
+# config.py logs it to the journal instead. We only page once the fetch has
+# failed on AMBIENT_FAIL_ALERT consecutive minutes, which means the cache has
+# fully expired AND live fetches keep failing -- i.e. something is actually
+# broken (Open-Meteo down, or the Pi has lost outbound internet).
+AMBIENT_FAIL_STATE   = Path("/run/heater-ambient-fail")  # tmpfs, a single int
+AMBIENT_FAIL_ALERT   = 5     # consecutive failed minutes before the first email
+AMBIENT_FAIL_REALERT = 360   # re-send every N further failures (~6h) so a lost
+                             # first alert doesn't mean permanent silence
+
+
+def _read_ambient_fail_count():
+    try:
+        return int(AMBIENT_FAIL_STATE.read_text().strip())
+    except (OSError, ValueError):
+        return 0
+
+
+def _track_ambient_health(failed):
+    """Count consecutive ambient-fetch failures and email on a sustained outage.
+
+    `failed` is True only when a location is configured but the fetch returned
+    no value -- an actual error, not "no location" and not a cache hit. State
+    lives in tmpfs, so an unplanned reboot resets the count; the outage simply
+    re-detects on the next run of failed minutes.
+    """
+    count = _read_ambient_fail_count()
+
+    if not failed:
+        # Fetch succeeded (or the cache is still valid, or no location is set).
+        # If we had paged, send a one-line all-clear to close out the thread.
+        if count >= AMBIENT_FAIL_ALERT:
+            _send_alert_email(
+                "Open-Meteo ambient fetch recovered",
+                f"Ambient temperature fetches are succeeding again after "
+                f"{count} consecutive failed minutes.",
+            )
+        try:
+            AMBIENT_FAIL_STATE.unlink()
+        except OSError:
+            pass
+        return
+
+    count += 1
+    try:
+        AMBIENT_FAIL_STATE.write_text(f"{count}\n")
+    except OSError:
+        pass
+
+    first  = count == AMBIENT_FAIL_ALERT
+    repeat = count > AMBIENT_FAIL_ALERT and \
+        (count - AMBIENT_FAIL_ALERT) % AMBIENT_FAIL_REALERT == 0
+    if first or repeat:
+        _send_alert_email(
+            "Open-Meteo ambient fetch failing",
+            f"fetch_ambient() has failed on {count} consecutive minutes. "
+            f"Open-Meteo may be down, or the Pi has lost outbound internet -- "
+            f"ambient temperature is not being logged.\n\n"
+            f"Underlying error is in the journal:\n"
+            f"  journalctl -t log_temp | grep fetch_ambient",
+        )
+
+
+def _send_alert_email(subject, message):
+    """Send a plain-text alert to NOTIFY_EMAIL via msmtp, if both are present."""
+    to = config.load_env().get("NOTIFY_EMAIL", "").strip()
+    if not to or not shutil.which("msmtp"):
+        return
+    body = (
+        f"Subject: {subject}\r\n"
+        f"To: {to}\r\n"
+        f"\r\n"
+        f"{message}\r\n"
+    )
+    try:
+        subprocess.run(
+            ["msmtp", to], input=body, text=True, timeout=30, check=False)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Normal mode (log one reading)
 # ---------------------------------------------------------------------------
 
@@ -218,6 +303,10 @@ def do_log():
     # Read sensors
     temp_c = config.read_temp()
     ambient_c = config.fetch_ambient(lat, lon)
+
+    # Alert only on a sustained Open-Meteo outage, not on every 503. A miss
+    # counts only when a location is configured (otherwise None is expected).
+    _track_ambient_health(failed=bool(lat and lon) and ambient_c is None)
 
     # Read current GPIO state
     heater_state = int(config.read_gpio())

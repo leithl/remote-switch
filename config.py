@@ -7,9 +7,9 @@ Used by log_temp.py, switch.py, and migrate.py.
 import csv
 import glob
 import json
+import logging
 import os
 import sqlite3
-import sys
 import urllib.request
 from datetime import datetime
 from io import StringIO
@@ -256,10 +256,15 @@ def fetch_ambient(lat, lon):
         AMBIENT_CACHE.write_text(f"{now},{temp}\n")
         return float(temp)
     except Exception as e:
-        # Cron captures stderr; route to journal so multi-hour outages
-        # (which silently leave ambient_c=NULL across many rows) are
-        # diagnosable after the fact instead of invisible.
-        print(f"fetch_ambient failed: {type(e).__name__}: {e}", file=sys.stderr)
+        # Log to the journal, not stderr. cron mails whatever a job writes to
+        # stderr, and Open-Meteo returns the odd 503 -- a single blip is not
+        # worth an email (a 15-min cache covers it). A *sustained* outage is
+        # alerted separately by log_temp's consecutive-failure counter; here we
+        # only need the record to be diagnosable (`journalctl -t log_temp`).
+        # On the WSGI path (no syslog handler) this falls back to stderr =
+        # Apache's error log, which is also not mailed.
+        logging.getLogger(__name__).warning(
+            "fetch_ambient failed: %s: %s", type(e).__name__, e)
         return None
 
 

@@ -186,7 +186,7 @@ The ambient temp is fetched every 15 minutes (cached in RAM between fetches) to 
 
 ---
 
-## Optional: Monthly Email Summaries
+## Optional: Email Summaries and Alerts
 
 Add to `.env`:
 
@@ -194,7 +194,10 @@ Add to `.env`:
 NOTIFY_EMAIL=you@example.com
 ```
 
-Requires [`msmtp`](https://marlam.de/msmtp/) to be installed and configured. The monthly rollup cron job sends a summary with temperature stats and heater runtime.
+Requires [`msmtp`](https://marlam.de/msmtp/) to be installed and configured. When set, `NOTIFY_EMAIL` receives:
+
+- **Monthly summary** — temperature stats and heater runtime, from the monthly rollup cron job.
+- **Open-Meteo outage alert** — sent only after the ambient fetch fails on 5 consecutive minutes (a single 503 is ignored — the 15-minute cache covers brief blips, and lone failures just go to the journal). Re-sent every ~6 hours while the outage persists, with a one-line all-clear when fetches recover.
 
 ---
 

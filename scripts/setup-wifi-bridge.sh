@@ -14,6 +14,10 @@
 # Usage:
 #   sudo AP_PASS=<pw> AP_CHAN=<n> ./scripts/setup-wifi-bridge.sh
 #
+# Optional: FLASHAIR_MAC=<aa:bb:cc:dd:ee:ff> adds a static lease at .20 for a
+# FlashAir card in station mode (flashair-sync LINK_MODE=sta). Existing
+# dhcp-host reservations in uap0.conf are carried over on re-runs either way.
+#
 # Run on the Pi after wlan0 is already associated to the hangar WiFi.
 
 set -e
@@ -27,6 +31,7 @@ AP_SSID="${AP_SSID:-hvac-pair}"
 AP_PASS="${AP_PASS:-}"
 AP_CHAN="${AP_CHAN:-}"
 AP_NET="${AP_NET:-192.168.50}"
+FLASHAIR_MAC="${FLASHAIR_MAC:-}"
 
 if [ ${#AP_PASS} -lt 8 ]; then
   echo "Set AP_PASS to a string of 8+ chars (WPA2 minimum)." >&2
@@ -101,6 +106,15 @@ EOF
 sed -i 's|^#\?DAEMON_CONF=.*|DAEMON_CONF="/etc/hostapd/hostapd.conf"|' /etc/default/hostapd
 
 echo "Writing /etc/dnsmasq.d/uap0.conf..."
+# Carry over static reservations from a previous run. The FlashAir card's
+# lease lives here; dropping it on a re-run would move the card off the IP
+# flashair-sync polls and silently stop log syncs.
+KEEP_HOSTS=$(grep -E '^dhcp-host=' /etc/dnsmasq.d/uap0.conf 2>/dev/null || true)
+if [ -n "$FLASHAIR_MAC" ]; then
+  # Replace whatever holds .20 (same card re-run, or a swapped card).
+  KEEP_HOSTS=$(printf '%s\n' "$KEEP_HOSTS" | grep -vF ",${AP_NET}.20," || true)
+  KEEP_HOSTS=$(printf '%s\n%s\n' "$KEEP_HOSTS" "dhcp-host=${FLASHAIR_MAC},${AP_NET}.20,flashair" | sed '/^$/d')
+fi
 cat > /etc/dnsmasq.d/uap0.conf <<EOF
 interface=uap0
 bind-interfaces
@@ -108,6 +122,9 @@ dhcp-range=${AP_NET}.50,${AP_NET}.150,255.255.255.0,12h
 dhcp-option=3,${AP_NET}.1
 dhcp-option=6,1.1.1.1,8.8.8.8
 EOF
+if [ -n "$KEEP_HOSTS" ]; then
+  printf '%s\n' "# Static reservations, below the dynamic pool (kept across re-runs)." "$KEEP_HOSTS" >> /etc/dnsmasq.d/uap0.conf
+fi
 
 if systemctl is-active --quiet NetworkManager; then
   echo "Telling NetworkManager to leave uap0 alone..."

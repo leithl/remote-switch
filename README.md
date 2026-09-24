@@ -231,6 +231,7 @@ iw dev wlan0 link | grep freq
 Optional overrides via environment variables (defaults shown):
 - `AP_SSID=hvac-pair`
 - `AP_NET=192.168.50` (Pi gets `.1`, dongle DHCPs `.50`–`.150`)
+- `FLASHAIR_MAC=` (unset) — reserve `.20` for a FlashAir card running in station mode, for [flashair-sync](https://github.com/leithl/flashair-sync)'s `LINK_MODE=sta`. Existing `dhcp-host` reservations survive re-runs either way.
 
 ### After reboot
 1. On your phone, join `hvac-pair` (the Pi's AP). Open NetHome Plus and pair the dongle, pointing it at `hvac-pair`.

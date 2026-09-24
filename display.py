@@ -206,6 +206,13 @@ def flashair_lines(fa):
     age_since_sync = (now - last) if last else None
     n = fa.get("last_sync_files_n", 0)
     shot_n = fa.get("last_shot_sync_files_n", 0)
+    # flashair-sync only rewrites the shot fields when shots actually move, so
+    # a logs-only sync leaves yesterday's count behind. Within a cycle the log
+    # sync is recorded before the shot sync, so an older shot epoch means the
+    # count belongs to an earlier cycle — drop it.
+    shot_epoch = fa.get("last_shot_sync_epoch")
+    if shot_epoch is None or (last is not None and shot_epoch < last):
+        shot_n = 0
     session_csv_n = fa.get("session_csv_n", 0)
     session_shots_n = fa.get("session_shots_n", 0)
 

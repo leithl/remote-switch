@@ -225,10 +225,36 @@ def read_temp_cached(conn, max_age_secs=300):
 # Ambient temperature (Open-Meteo, 15-min file cache)
 # ---------------------------------------------------------------------------
 
+AMBIENT_TTL_SECS       = 900    # refetch once the cached value is this old
+AMBIENT_STALE_MAX_SECS = 3600   # on a failed refetch, keep serving the last
+                                # good value until it is this old, then None
+
+
+def _read_ambient_cache():
+    """Return (epoch, temp_c) of the last successful fetch, or None."""
+    try:
+        ts, val = AMBIENT_CACHE.read_text().strip().split(",", 1)
+        return int(ts), float(val)
+    except (ValueError, OSError):
+        return None
+
+
+def ambient_age_secs():
+    """Seconds since the last successful Open-Meteo fetch, or None if none."""
+    cached = _read_ambient_cache()
+    if cached is None:
+        return None
+    return int(datetime.now().timestamp()) - cached[0]
+
+
 def fetch_ambient(lat, lon):
     """
     Return ambient temperature in °C (float) or None.
-    Caches result for 15 minutes in AMBIENT_CACHE to reduce API calls.
+    Caches result for 15 minutes in AMBIENT_CACHE to reduce API calls. If a
+    refetch fails, the last good value is returned until it is
+    AMBIENT_STALE_MAX_SECS old -- outdoor temperature moves slowly, and
+    Open-Meteo has multi-minute TLS stalls that would otherwise punch NULL
+    holes in the ambient line (2026-11-12).
     """
     if not lat or not lon:
         return None
@@ -236,13 +262,9 @@ def fetch_ambient(lat, lon):
     now = int(datetime.now().timestamp())
 
     # Try cache first
-    if AMBIENT_CACHE.exists():
-        try:
-            cached_ts, cached_val = AMBIENT_CACHE.read_text().strip().split(",", 1)
-            if now - int(cached_ts) < 900:
-                return float(cached_val)
-        except (ValueError, OSError):
-            pass
+    cached = _read_ambient_cache()
+    if cached is not None and now - cached[0] < AMBIENT_TTL_SECS:
+        return cached[1]
 
     # Fetch fresh
     url = (
@@ -252,20 +274,27 @@ def fetch_ambient(lat, lon):
     try:
         req = urllib.request.urlopen(url, timeout=5)
         data = json.loads(req.read().decode())
-        temp = data["current"]["temperature_2m"]
-        AMBIENT_CACHE.write_text(f"{now},{temp}\n")
-        return float(temp)
+        temp = float(data["current"]["temperature_2m"])
     except Exception as e:
         # Log to the journal, not stderr. cron mails whatever a job writes to
         # stderr, and Open-Meteo returns the odd 503 -- a single blip is not
-        # worth an email (a 15-min cache covers it). A *sustained* outage is
+        # worth an email (the cache covers it). A *sustained* outage is
         # alerted separately by log_temp's consecutive-failure counter; here we
         # only need the record to be diagnosable (`journalctl -t log_temp`).
         # On the WSGI path (no syslog handler) this falls back to stderr =
         # Apache's error log, which is also not mailed.
         logging.getLogger(__name__).warning(
             "fetch_ambient failed: %s: %s", type(e).__name__, e)
+        if cached is not None and now - cached[0] < AMBIENT_STALE_MAX_SECS:
+            return cached[1]
         return None
+    # A failed cache write (WSGI as www-data vs the root-owned file) must not
+    # throw away a value we just fetched.
+    try:
+        AMBIENT_CACHE.write_text(f"{now},{temp}\n")
+    except OSError:
+        pass
+    return temp
 
 
 # ---------------------------------------------------------------------------

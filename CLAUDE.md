@@ -39,7 +39,7 @@ Optional, opt-in via `PRESENCE_ENABLED=1`. Turns the dashboard backlight off whe
 
 Files:
 - `/run/heater.db` — RAM (tmpfs). **Only holds `readings` table.** Written every minute by cron.
-- `/run/heater-ambient.tmp` — Ambient temp cache, 15-min TTL, ~50 bytes. Written ~96×/day.
+- `/run/heater-ambient.tmp` — Ambient temp cache, 15-min TTL, ~50 bytes. Written ~96×/day. On a failed refetch `fetch_ambient()` keeps returning the cached value until it is 60 min old (`AMBIENT_STALE_MAX_SECS`), so Open-Meteo's multi-minute TLS stalls don't punch NULL holes in the ambient line. The outage email (`log_temp.py`, `AMBIENT_FAIL_ALERT`) fires after 30 failed minutes, judged by cache age rather than `ambient_c is None`.
 - `/run/heater-hvac.json` — Cached HVAC dongle state (reported + commanded views), 30s TTL, ~400 bytes. Written every minute by `log_temp.py` (via `hvac.state_for_log()`) and on every HVAC apply.
 - `/run/heater-flashair.json` — flashair-sync status (last sync epoch + file count + transferring flag), ~200 bytes. **Written by the flashair-sync daemon** (separate systemd service running as `leith` on this same Pi) on every sync state change — not by `log_temp.py`. Read by `switch.py` at page-render time. The "opt-in" knob is just whether flashair-sync is running on this host: file present → UI line appears; file absent → UI line hidden. Surfaces "FlashAir: N files, X ago" in the chart-card header.
 - `/var/lib/heater/heater.db` — Disk (SD card). Holds `readings` + `schedules` + `monthly_cache`. Written **only weekly** (`log_temp.py flush`) and **monthly** (`log_temp.py rollup`), plus when the user adds/cancels a schedule (rare).

@@ -197,7 +197,7 @@ NOTIFY_EMAIL=you@example.com
 Requires [`msmtp`](https://marlam.de/msmtp/) to be installed and configured. When set, `NOTIFY_EMAIL` receives:
 
 - **Monthly summary** — temperature stats and heater runtime, from the monthly rollup cron job.
-- **Open-Meteo outage alert** — sent only after the ambient fetch fails on 5 consecutive minutes (a single 503 is ignored — the 15-minute cache covers brief blips, and lone failures just go to the journal). Re-sent every ~6 hours while the outage persists, with a one-line all-clear when fetches recover.
+- **Open-Meteo outage alert** — sent only after the ambient fetch fails on 30 consecutive minutes, i.e. 45 minutes without a fresh value. Shorter outages are covered by the cache: after a failed refetch the last good value keeps being logged until it is an hour old, and the individual failures just go to the journal. Re-sent every ~6 hours while the outage persists, with a one-line all-clear when fetches recover.
 
 ---
 
@@ -350,7 +350,7 @@ To minimise SD card writes on the Raspberry Pi, all per-minute data is written t
 ```
 /run/heater.db                  ← RAM (tmpfs). Volatile. Written every minute.
 /var/lib/heater/heater.db       ← Disk (SD card). Written weekly (flush) + monthly (rollup).
-/run/heater-ambient.tmp         ← Ambient temp cache (15-min TTL, ~50 bytes).
+/run/heater-ambient.tmp         ← Ambient temp cache (15-min TTL, served up to 60 min if refetch fails, ~50 bytes).
 /run/heater-hvac.json           ← Cached HVAC dongle state (30-sec TTL, ~400 bytes). Optional.
 ```
 

@@ -209,13 +209,20 @@ def do_rollup(month_arg=None):
 # Open-Meteo outage alerting
 # ---------------------------------------------------------------------------
 # A single fetch_ambient() failure is routine (Open-Meteo returns the odd 503,
-# and the 15-min ambient cache covers brief blips) and no longer emails --
-# config.py logs it to the journal instead. We only page once the fetch has
-# failed on AMBIENT_FAIL_ALERT consecutive minutes, which means the cache has
-# fully expired AND live fetches keep failing -- i.e. something is actually
-# broken (Open-Meteo down, or the Pi has lost outbound internet).
+# and the ambient cache covers brief blips) and no longer emails -- config.py
+# logs it to the journal instead. A minute counts as failed once the cached
+# value is past its 15-min TTL and the refetch still failed; fetch_ambient()
+# keeps serving that last good value until it is an hour old.
+#
+# Open-Meteo has multi-minute TLS-handshake stalls that clear on their own
+# (2026-11-12/13: 21 stalls of 3-8 minutes, ~1 an hour; the Pi's alert mail to
+# Gmail went out over TLS mid-stall, so the uplink was fine). With the old
+# 5-minute threshold every long-enough stall paged, then sent an all-clear a
+# minute later. 30 failed minutes = 45 min with no
+# fresh value, which no stall has come near, and still pages before the
+# stale-value window runs out and ambient goes NULL at 60.
 AMBIENT_FAIL_STATE   = Path("/run/heater-ambient-fail")  # tmpfs, a single int
-AMBIENT_FAIL_ALERT   = 5     # consecutive failed minutes before the first email
+AMBIENT_FAIL_ALERT   = 30    # consecutive failed minutes before the first email
 AMBIENT_FAIL_REALERT = 360   # re-send every N further failures (~6h) so a lost
                              # first alert doesn't mean permanent silence
 
@@ -230,8 +237,9 @@ def _read_ambient_fail_count():
 def _track_ambient_health(failed):
     """Count consecutive ambient-fetch failures and email on a sustained outage.
 
-    `failed` is True only when a location is configured but the fetch returned
-    no value -- an actual error, not "no location" and not a cache hit. State
+    `failed` is True only when a location is configured and there is no fresh
+    value -- the refetch failed, whether or not a stale value was served. Not
+    "no location" and not a cache hit. State
     lives in tmpfs, so an unplanned reboot resets the count; the outage simply
     re-detects on the next run of failed minutes.
     """
@@ -262,11 +270,17 @@ def _track_ambient_health(failed):
     repeat = count > AMBIENT_FAIL_ALERT and \
         (count - AMBIENT_FAIL_ALERT) % AMBIENT_FAIL_REALERT == 0
     if first or repeat:
+        age = config.ambient_age_secs()
+        if age is None:
+            last = "There is no cached value (fresh boot?)"
+        else:
+            last = f"The last good value is {age // 60} minutes old"
         _send_alert_email(
             "Open-Meteo ambient fetch failing",
             f"fetch_ambient() has failed on {count} consecutive minutes. "
-            f"Open-Meteo may be down, or the Pi has lost outbound internet -- "
-            f"ambient temperature is not being logged.\n\n"
+            f"Open-Meteo may be down, or the Pi has lost outbound internet. "
+            f"{last}; ambient is logged as NULL once it passes "
+            f"{config.AMBIENT_STALE_MAX_SECS // 60} minutes.\n\n"
             f"Underlying error is in the journal:\n"
             f"  journalctl -t log_temp | grep fetch_ambient",
         )
@@ -305,8 +319,14 @@ def do_log():
     ambient_c = config.fetch_ambient(lat, lon)
 
     # Alert only on a sustained Open-Meteo outage, not on every 503. A miss
-    # counts only when a location is configured (otherwise None is expected).
-    _track_ambient_health(failed=bool(lat and lon) and ambient_c is None)
+    # counts only when a location is configured (otherwise None is expected),
+    # and judges freshness, not ambient_c: a stale fallback is still a miss.
+    if lat and lon:
+        age = config.ambient_age_secs()
+        failed = age is None or age >= config.AMBIENT_TTL_SECS
+    else:
+        failed = False
+    _track_ambient_health(failed=failed)
 
     # Read current GPIO state
     heater_state = int(config.read_gpio())
